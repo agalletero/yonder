@@ -408,6 +408,44 @@ impl Reenvio {
             (_, None) => self.escucha.to_string(),
         }
     }
+
+    /// Como `descripcion`, pero nombrando en qué máquina se resuelve cada punta.
+    ///
+    /// «127.0.0.1:3001 → localhost:3001» se lee mal: los dos parecen este
+    /// equipo, cuando el de la derecha lo resuelve el servidor del otro lado.
+    /// Con un destino explícito la ambigüedad no existe; con `localhost` es
+    /// total, y es justo el caso en que equivocarse sale caro —un reenvío a
+    /// `localhost` cuando el servicio remoto escucha en un alias de IP deja el
+    /// puerto abierto sin transportar nada.
+    ///
+    /// No se sustituye `localhost` por el nombre del host, que sería lo cómodo:
+    /// diría que ese puerto es alcanzable en esa dirección, y muchas veces no
+    /// lo es. Se conserva el valor literal del fichero y se añade de quién es.
+    ///
+    /// Vive aparte de `descripcion` a propósito: esa la consumen el registro y
+    /// el buscador, y meterle estas dos palabras haría que teclear «remoto»
+    /// encontrara todos los túneles.
+    pub fn descripcion_orientada(&self) -> String {
+        match (&self.tipo, &self.destino) {
+            (TipoReenvio::Local, Some(destino)) => format!(
+                "aquí {}:{} → remoto {}",
+                self.escucha.direccion_efectiva(),
+                self.escucha.puerto,
+                destino
+            ),
+            // En un reenvío remoto las puntas están cambiadas: el puerto lo abre
+            // el servidor y el destino lo resuelve este equipo.
+            (TipoReenvio::Remoto, Some(destino)) => {
+                format!("remoto :{} → aquí {}", self.escucha.puerto, destino)
+            }
+            (TipoReenvio::Dinamico, _) => format!(
+                "SOCKS aquí en {}:{}",
+                self.escucha.direccion_efectiva(),
+                self.escucha.puerto
+            ),
+            (_, None) => self.escucha.to_string(),
+        }
+    }
 }
 
 /// De dónde sale la definición de un host.
@@ -596,6 +634,37 @@ mod pruebas {
         let r = Reenvio::analizar(TipoReenvio::Local, "127.0.0.1:8080 interno:80").unwrap();
         assert_eq!(r.escucha, Extremo::nuevo("127.0.0.1", 8080));
         assert_eq!(r.argumento(), "127.0.0.1:8080:interno:80");
+    }
+
+    #[test]
+    fn la_descripcion_orientada_dice_de_quien_es_cada_localhost() {
+        let r = Reenvio::analizar(TipoReenvio::Local, "3001 localhost:3001").unwrap();
+        // Sin orientar, las dos puntas parecen la misma máquina.
+        assert_eq!(r.descripcion(), "127.0.0.1:3001 → localhost:3001");
+        assert_eq!(
+            r.descripcion_orientada(),
+            "aquí 127.0.0.1:3001 → remoto localhost:3001"
+        );
+    }
+
+    #[test]
+    fn la_descripcion_orientada_conserva_el_destino_literal() {
+        // No se sustituye por el nombre del host: diría que ese puerto es
+        // alcanzable en esa dirección, y con un alias de IP no tiene por qué.
+        let r = Reenvio::analizar(TipoReenvio::Local, "3000 192.0.2.50:3000").unwrap();
+        assert_eq!(
+            r.descripcion_orientada(),
+            "aquí 127.0.0.1:3000 → remoto 192.0.2.50:3000"
+        );
+    }
+
+    #[test]
+    fn un_reenvio_remoto_tiene_las_puntas_cambiadas() {
+        let r = Reenvio::analizar(TipoReenvio::Remoto, "8080 localhost:3000").unwrap();
+        assert_eq!(
+            r.descripcion_orientada(),
+            "remoto :8080 → aquí localhost:3000"
+        );
     }
 
     #[test]

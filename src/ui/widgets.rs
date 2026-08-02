@@ -180,6 +180,36 @@ pub fn boton_secundario(
     ui.add_enabled(activo, boton)
 }
 
+/// Botón de acción de una fila: icono con su palabra al lado.
+///
+/// En la lista el icono a secas no basta. Un cuadrado no dice si baja este
+/// túnel, si los baja todos o si deja de reintentar, y el globo de ayuda solo
+/// aparece si a alguien se le ocurre pasar el ratón por encima y esperar. La
+/// palabra cuesta anchura y se paga: es la diferencia entre una acción que se
+/// encuentra y otra que hay que descubrir.
+///
+/// El color lo pone quien llama, porque cada acción tiene el suyo —levantar es
+/// éxito, reparar es aviso, reintentar es error— y aquí no se decide.
+pub fn boton_de_fila(
+    ui: &mut egui::Ui,
+    tema: &Tema,
+    icono: Icono,
+    tinta: Color32,
+    texto: &str,
+) -> egui::Response {
+    let boton = egui::Button::image_and_text(
+        iconos::imagen(icono, iconos::PEQUENO, tinta),
+        egui::RichText::new(texto)
+            .size(tema.tipografia.pequeno)
+            .color(tinta),
+    )
+    .fill(Color32::TRANSPARENT)
+    .stroke(Stroke::new(1.0_f32, tinta.gamma_multiply(0.35)))
+    .corner_radius(CornerRadius::same(tema.radios.medio));
+
+    ui.add(boton)
+}
+
 /// Botón destructivo: contorno de error, relleno solo al pasar por encima.
 pub fn boton_destructivo(
     ui: &mut egui::Ui,

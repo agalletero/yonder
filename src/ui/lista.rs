@@ -234,7 +234,7 @@ fn fila(
                         iconos::PEQUENO,
                         tema.paleta.texto_tenue,
                     );
-                    ui.label(tema::mono(&tema, tunel.reenvio.descripcion()));
+                    ui.label(tema::mono(&tema, tunel.reenvio.descripcion_orientada()));
                     if tunel.reenvio.salud.atraviesa_el_tunel() {
                         // Que se vea qué se está comprobando: no es lo mismo
                         // «el puerto está abierto» que «el servicio responde».
@@ -381,57 +381,78 @@ fn acciones_de_fila(
 
     ui.add_space(tema.escala.xs);
 
+    // Las acciones llevan su palabra al lado del icono: en una lista de túneles
+    // el mismo cuadrado significa «baja este» o «deja de reintentar» según el
+    // estado, y eso no se adivina de un vistazo. La etiqueta es la corta; el
+    // matiz entero queda en el globo de ayuda.
     match estado.estado {
         Estado::Definido => {
-            if iconos::boton(ui, Icono::ARRANCAR, tema.paleta.exito, "Levantar").clicked() {
+            if widgets::boton_de_fila(ui, tema, Icono::ARRANCAR, tema.paleta.exito, "Levantar")
+                .on_hover_text("Abrir la conexión y establecer este reenvío")
+                .clicked()
+            {
                 acciones.push(Accion::Levantar(id));
             }
         }
         Estado::Fallido => {
-            if iconos::boton(ui, Icono::REINTENTAR, tema.paleta.error, "Reintentar ahora").clicked()
+            if widgets::boton_de_fila(ui, tema, Icono::REINTENTAR, tema.paleta.error, "Reintentar")
+                .on_hover_text("Reintentar ahora")
+                .clicked()
             {
                 acciones.push(Accion::Reintentar(id));
             }
         }
         Estado::Reintentando => {
-            if iconos::boton(
+            if widgets::boton_de_fila(
                 ui,
+                tema,
                 Icono::PARAR,
                 tema.paleta.texto_secundario,
-                "Dejar de intentarlo",
+                "Parar",
             )
+            .on_hover_text("Dejar de intentarlo")
             .clicked()
             {
                 acciones.push(Accion::Bajar(id.clone()));
             }
-            if iconos::boton(
-                ui,
-                Icono::RAYO,
-                tema.paleta.info,
-                "Reintentar ya, sin esperar",
-            )
-            .clicked()
+            if widgets::boton_de_fila(ui, tema, Icono::RAYO, tema.paleta.info, "Ahora")
+                .on_hover_text("Reintentar ya, sin esperar al siguiente intento")
+                .clicked()
             {
                 acciones.push(Accion::Reintentar(id));
             }
         }
         Estado::Degradado => {
-            if iconos::boton(ui, Icono::PARAR, tema.paleta.texto_secundario, "Bajar").clicked() {
+            if widgets::boton_de_fila(
+                ui,
+                tema,
+                Icono::PARAR,
+                tema.paleta.texto_secundario,
+                "Bajar",
+            )
+            .on_hover_text("Cerrar este reenvío")
+            .clicked()
+            {
                 acciones.push(Accion::Bajar(id.clone()));
             }
-            if iconos::boton(
-                ui,
-                Icono::REINTENTAR,
-                tema.paleta.aviso,
-                "Reparar el reenvío",
-            )
-            .clicked()
+            if widgets::boton_de_fila(ui, tema, Icono::REINTENTAR, tema.paleta.aviso, "Reparar")
+                .on_hover_text("Rehacer el reenvío sin cerrar la conexión")
+                .clicked()
             {
                 acciones.push(Accion::Reintentar(id));
             }
         }
         _ => {
-            if iconos::boton(ui, Icono::PARAR, tema.paleta.texto_secundario, "Bajar").clicked() {
+            if widgets::boton_de_fila(
+                ui,
+                tema,
+                Icono::PARAR,
+                tema.paleta.texto_secundario,
+                "Bajar",
+            )
+            .on_hover_text("Cerrar este reenvío")
+            .clicked()
+            {
                 acciones.push(Accion::Bajar(id));
             }
         }

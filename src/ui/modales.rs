@@ -580,7 +580,7 @@ fn importar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui) -> bool {
                                 ui.label(tema::cuerpo(&tema, &host.alias));
                                 ui.label(tema::tenue(&tema, host.destino_completo()));
                                 for reenvio in &host.reenvios {
-                                    ui.label(tema::mono(&tema, reenvio.descripcion()));
+                                    ui.label(tema::mono(&tema, reenvio.descripcion_orientada()));
                                 }
                                 if let yonder::modelo::Origen::Ajeno(ruta) = &host.origen {
                                     ui.label(tema::tenue(&tema, yonder::rutas::abreviar(ruta)));
