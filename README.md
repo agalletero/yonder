@@ -169,7 +169,65 @@ yonder          # abre la ventana si existe servidor gráfico
 yonder gui      # la abre en todo caso
 ```
 
-### 4.2 Interfaz de línea de órdenes
+### 4.2 Parámetros del formulario «Nuevo túnel»
+
+El formulario se compone de dos partes: los datos de la conexión, comunes a
+todos sus reenvíos, y una fila por cada puerto reenviado. Bajo cada fila se
+muestra la línea exacta que se escribirá en el fichero, de modo que el
+resultado es visible antes de guardar.
+
+#### 4.2.1 Datos de la conexión
+
+| Campo | Obligatorio | Directiva | Descripción |
+|---|---|---|---|
+| **Alias** | Sí | `Host` | Nombre con el que se invoca la conexión, incluido `ssh <alias>` desde la terminal. No admite espacios ni los comodines `*`, `?` y `!`: designa un host concreto, no un patrón |
+| **Host de destino** | Sí | `HostName` | Nombre o dirección del servidor SSH. Puede omitirse únicamente si el propio alias resuelve por DNS o por otra entrada de `~/.ssh/config` |
+| **Usuario** | No | `User` | Cuenta remota. En blanco se aplica lo que determine OpenSSH: el usuario local o el declarado en la configuración |
+| **Puerto SSH** | No | `Port` | Puerto del servidor SSH. En blanco, 22 |
+| **Máquinas de salto** | No | `ProxyJump` | Uno o varios saltos intermedios, separados por comas. OpenSSH los encadena en el orden indicado |
+| **Clave privada** | No | `IdentityFile` | Ruta de la clave. En blanco la elección corresponde a `ssh-agent`. Una clave respaldada por hardware (sufijo `_sk`) exigirá interactuar con el dispositivo físico |
+| **Nota** | No | comentario `# nota:` | Texto libre que se muestra bajo el túnel en la lista. OpenSSH lo ignora por tratarse de un comentario |
+
+#### 4.2.2 Reenvíos
+
+Se admite más de un reenvío por conexión, y todos comparten la misma conexión
+maestra. Debe declararse al menos uno.
+
+| Campo | Obligatorio | Descripción |
+|---|---|---|
+| **Tipo** | Sí | `Local` (`LocalForward`, equivalente a `-L`) abre un puerto en la máquina propia hacia un destino accesible desde el servidor remoto. `Remoto` (`RemoteForward`, `-R`) hace lo inverso: abre el puerto en el servidor remoto hacia un destino accesible desde aquí. `SOCKS` (`DynamicForward`, `-D`) abre un proxy dinámico y no requiere destino |
+| **Escucha en** | No | Interfaz en la que se abre el puerto. En blanco, `localhost`, de modo que solo es accesible desde la propia máquina. Indicar una dirección que abarque todas las interfaces expone el puerto al resto de la red, y el formulario lo advierte |
+| **Puerto local** | Sí | Puerto que se abre. Los inferiores a 1024 requieren la capacidad descrita en el apartado 4.4 |
+| **Host remoto** | Sí, salvo en `SOCKS` | Destino del reenvío, resuelto **desde el servidor remoto**. El valor predeterminado es `localhost`, que designa al propio servidor y no a la máquina de origen |
+| **Puerto remoto** | Sí, salvo en `SOCKS` | Puerto del destino |
+| **Comprobación** | No | Procedimiento de verificación de salud, disponible solo en los reenvíos locales. Las opciones se detallan en el apartado 5.2 |
+
+La comprobación no se ofrece en los otros dos tipos por una razón de fondo: un
+reenvío remoto abre el puerto en el extremo contrario, donde no hay nada que
+sondear desde aquí, y un proxy SOCKS no responde a peticiones HTTP ni emite
+saludo alguno, por lo que cualquier sonda de ese tipo lo marcaría
+permanentemente como inoperativo.
+
+#### 4.2.3 Validaciones y advertencias
+
+Impiden guardar:
+
+- Alias vacío, con espacios o con comodines.
+- Ausencia de `HostName` cuando el alias no resuelve por sí mismo.
+- Puerto igual a 0 o no numérico.
+- Ningún reenvío declarado.
+- Dos reenvíos escuchando en el mismo puerto local.
+
+No impiden guardar, pero se advierten en el momento de definirlos y no cuando
+falle la conexión:
+
+- Puerto local inferior a 1024 sin la capacidad `CAP_NET_BIND_SERVICE`. Se
+  indica la orden exacta que debe ejecutarse.
+- Puerto local ya ocupado, identificando el proceso que lo retiene.
+- Reenvío que escucha en todas las interfaces y queda por tanto accesible desde
+  la red.
+
+### 4.3 Interfaz de línea de órdenes
 
 La totalidad de las operaciones disponibles en la ventana puede ejecutarse sin
 ella:
@@ -194,7 +252,7 @@ ella:
 La salida se emite sin colores, con los prefijos `[ERR]`, `[WARN]`, `[INFO]` y
 `[DEBUG]`.
 
-### 4.3 Puertos inferiores a 1024
+### 4.4 Puertos inferiores a 1024
 
 Su reenvío requiere una capacidad que el ejecutable no incorpora de serie. La
 aplicación lo detecta durante la validación del túnel e indica la orden que debe
