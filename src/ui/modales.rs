@@ -962,15 +962,35 @@ pub fn bloque_codigo(ui: &mut egui::Ui, tema: &Tema, texto: &str) {
         .corner_radius(egui::CornerRadius::same(tema.radios.medio))
         .inner_margin(tema.margen(tema.escala.s))
         .show(ui, |ui| {
-            // Seleccionable: una orden que hay que copiar a mano letra a letra
-            // es una orden que no se va a ejecutar.
-            let mut copia = texto.to_string();
-            ui.add(
-                egui::TextEdit::multiline(&mut copia)
-                    .font(egui::TextStyle::Monospace)
-                    .desired_width(f32::INFINITY)
-                    .frame(false)
-                    .interactive(true),
-            );
+            // De derecha a izquierda a propósito: así el botón reserva su hueco
+            // primero y al texto le queda exactamente lo que sobra. Restar un
+            // ancho estimado obliga a acertar una constante que cambia con el
+            // tema y con la escala del sistema.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                if iconos::boton(
+                    ui,
+                    Icono::COPIAR,
+                    tema.paleta.texto_tenue,
+                    "Copiar al portapapeles",
+                )
+                .clicked()
+                {
+                    ui.ctx().copy_text(texto.to_string());
+                }
+
+                // Seleccionable: una orden que hay que transcribir a mano letra
+                // a letra es una orden que no se va a ejecutar. El botón ahorra
+                // incluso eso, que es el caso de quien se la lleva a otra
+                // máquina.
+                let mut copia = texto.to_string();
+                let ancho = ui.available_width();
+                ui.add(
+                    egui::TextEdit::multiline(&mut copia)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(ancho)
+                        .frame(false)
+                        .interactive(true),
+                );
+            });
         });
 }

@@ -90,6 +90,23 @@ impl fmt::Display for Extremo {
     }
 }
 
+/// Entrecomilla un argumento si al pegarlo en una shell no sobreviviría entero.
+///
+/// El caso real es una ruta de clave con un espacio dentro. Se entrecomilla solo
+/// cuando hace falta: una orden llena de comillas innecesarias se lee peor, y
+/// esta está para copiarla y entenderla de un vistazo.
+fn entrecomillar(argumento: &str) -> String {
+    let seguro = !argumento.is_empty()
+        && argumento
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.,:/@=+[]".contains(c));
+    if seguro {
+        argumento.to_string()
+    } else {
+        format!("'{}'", argumento.replace('\'', r"'\''"))
+    }
+}
+
 fn analizar_puerto(texto: &str) -> Resultado<u16> {
     texto
         .trim()
@@ -542,6 +559,61 @@ impl Host {
             .collect()
     }
 
+    /// La orden `ssh` equivalente a un reenvío, para ejecutarla a mano.
+    ///
+    /// **No** es la orden que ejecuta la aplicación. Esa abre un maestro con
+    /// `-M -f -S <socket> -o ControlPersist=yes -o ClearAllForwardings=yes` y
+    /// termina en el alias, porque después añade cada reenvío en caliente con
+    /// `-O forward`. Copiar aquello no le serviría a nadie: depende de un
+    /// socket de control de esta máquina y de que el alias exista en el
+    /// `~/.ssh/config` de quien la pegue, que es precisamente lo que no tendrá
+    /// si está en un servidor ajeno.
+    ///
+    /// Lo que se devuelve es una conexión puntual y autocontenida: todo lo que
+    /// el bloque `Host` aportaría —puerto, saltos, clave, usuario— va escrito
+    /// en la propia línea. Se sostiene sola en una máquina que no ha visto este
+    /// fichero de configuración nunca.
+    ///
+    /// Queda fuera todo lo que es andamiaje de la aplicación: el multiplexado,
+    /// los latidos, las sondas de salud. Quien copie esto quiere un túnel
+    /// ahora, no la supervisión.
+    ///
+    /// Sin `-f`: en primer plano se ve si la conexión ha funcionado y se cierra
+    /// con Ctrl-C. Mandarla al fondo en una terminal ajena deja un proceso que
+    /// luego hay que buscar.
+    pub fn orden_ssh_manual(&self, reenvio: &Reenvio) -> String {
+        let mut partes = vec!["ssh".to_string(), "-N".to_string()];
+
+        partes.push(reenvio.tipo.bandera().to_string());
+        partes.push(entrecomillar(&reenvio.argumento()));
+
+        if let Some(puerto) = self.puerto {
+            if puerto != 22 {
+                partes.push("-p".to_string());
+                partes.push(puerto.to_string());
+            }
+        }
+
+        // `-J` es la forma de línea de órdenes de ProxyJump, y encadena igual.
+        if !self.saltos.is_empty() {
+            partes.push("-J".to_string());
+            partes.push(entrecomillar(&self.saltos.join(",")));
+        }
+
+        for identidad in &self.identidades {
+            partes.push("-i".to_string());
+            partes.push(entrecomillar(identidad));
+        }
+
+        let destino = match &self.usuario {
+            Some(usuario) => format!("{usuario}@{}", self.destino()),
+            None => self.destino().to_string(),
+        };
+        partes.push(entrecomillar(&destino));
+
+        partes.join(" ")
+    }
+
     /// Comprueba que la definición es coherente antes de guardarla.
     pub fn validar(&self) -> Resultado<()> {
         if self.alias.trim().is_empty() {
@@ -634,6 +706,95 @@ mod pruebas {
         let r = Reenvio::analizar(TipoReenvio::Local, "127.0.0.1:8080 interno:80").unwrap();
         assert_eq!(r.escucha, Extremo::nuevo("127.0.0.1", 8080));
         assert_eq!(r.argumento(), "127.0.0.1:8080:interno:80");
+    }
+
+    fn host_de_ejemplo() -> Host {
+        let mut host = Host::nuevo("salto");
+        host.hostname = Some("192.0.2.10".into());
+        host.usuario = Some("usuario".into());
+        host
+    }
+
+    #[test]
+    fn la_orden_manual_se_sostiene_sin_el_fichero_de_configuracion() {
+        let host = host_de_ejemplo();
+        let reenvio = Reenvio::analizar(TipoReenvio::Local, "3001 localhost:3001").unwrap();
+        // Ni el alias ni el socket de control: eso no existe en la otra máquina.
+        assert_eq!(
+            host.orden_ssh_manual(&reenvio),
+            "ssh -N -L 3001:localhost:3001 usuario@192.0.2.10"
+        );
+    }
+
+    #[test]
+    fn la_orden_manual_no_arrastra_el_andamiaje_de_la_aplicacion() {
+        let host = host_de_ejemplo();
+        let reenvio = Reenvio::analizar(TipoReenvio::Local, "3001 localhost:3001").unwrap();
+        let orden = host.orden_ssh_manual(&reenvio);
+        for sobra in [
+            "-M",
+            "-S",
+            "ControlPersist",
+            "ClearAllForwardings",
+            "ServerAlive",
+            "salud",
+        ] {
+            assert!(
+                !orden.contains(sobra),
+                "«{sobra}» no pinta nada en «{orden}»"
+            );
+        }
+    }
+
+    #[test]
+    fn la_orden_manual_lleva_puerto_saltos_y_clave() {
+        let mut host = host_de_ejemplo();
+        host.puerto = Some(2222);
+        host.saltos = vec!["primero".into(), "segundo".into()];
+        host.identidades = vec!["/home/u/.ssh/id_ed25519".into()];
+        let reenvio = Reenvio::analizar(TipoReenvio::Local, "8080 interno:80").unwrap();
+        assert_eq!(
+            host.orden_ssh_manual(&reenvio),
+            "ssh -N -L 8080:interno:80 -p 2222 -J primero,segundo \
+             -i /home/u/.ssh/id_ed25519 usuario@192.0.2.10"
+        );
+    }
+
+    #[test]
+    fn el_puerto_22_no_se_escribe_por_ser_el_de_por_defecto() {
+        let mut host = host_de_ejemplo();
+        host.puerto = Some(22);
+        let reenvio = Reenvio::analizar(TipoReenvio::Local, "3001 localhost:3001").unwrap();
+        assert!(!host.orden_ssh_manual(&reenvio).contains("-p"));
+    }
+
+    #[test]
+    fn la_orden_manual_entrecomilla_lo_que_la_shell_partiria() {
+        let mut host = host_de_ejemplo();
+        host.identidades = vec!["/home/u/mis claves/id_ed25519".into()];
+        let reenvio = Reenvio::analizar(TipoReenvio::Local, "3001 localhost:3001").unwrap();
+        assert!(host
+            .orden_ssh_manual(&reenvio)
+            .contains("-i '/home/u/mis claves/id_ed25519'"));
+    }
+
+    #[test]
+    fn la_orden_manual_usa_la_bandera_de_cada_tipo() {
+        let host = host_de_ejemplo();
+        let remoto = Reenvio::analizar(TipoReenvio::Remoto, "8080 localhost:3000").unwrap();
+        assert!(host
+            .orden_ssh_manual(&remoto)
+            .contains("-R 8080:localhost:3000"));
+        let socks = Reenvio::analizar(TipoReenvio::Dinamico, "1080").unwrap();
+        assert!(host.orden_ssh_manual(&socks).contains("-D 1080"));
+    }
+
+    #[test]
+    fn sin_usuario_la_orden_lleva_solo_el_host() {
+        let mut host = host_de_ejemplo();
+        host.usuario = None;
+        let reenvio = Reenvio::analizar(TipoReenvio::Local, "3001 localhost:3001").unwrap();
+        assert!(host.orden_ssh_manual(&reenvio).ends_with(" 192.0.2.10"));
     }
 
     #[test]

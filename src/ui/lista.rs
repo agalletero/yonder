@@ -668,10 +668,27 @@ pub fn panel_detalle(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, id: &str) {
             widgets::cabecera_seccion(ui, &tema, "Equivalente en la terminal");
             ui.label(tema::tenue(
                 &tema,
-                "Esto funciona sin la aplicación abierta, que es justo el objetivo:",
+                "En este equipo, porque la definición está en el fichero de \
+                 configuración. Funciona sin la aplicación abierta, que es justo \
+                 el objetivo:",
             ));
             ui.add_space(tema.escala.xs);
             modales::bloque_codigo(ui, &tema, &format!("ssh {}", tunel.alias));
+
+            // La orden autocontenida, para llevársela fuera. Va aquí y no en un
+            // sitio más visible porque es el caso raro; pero cuando toca, se
+            // está en un servidor sin escritorio y sin este fichero, y entonces
+            // es lo único que sirve.
+            if let Some(host) = &host {
+                ui.add_space(tema.escala.m);
+                ui.label(tema::tenue(
+                    &tema,
+                    "En cualquier otra máquina, que no tiene esta configuración. \
+                     Abre solo este túnel, en primer plano; se cierra con Ctrl-C:",
+                ));
+                ui.add_space(tema.escala.xs);
+                modales::bloque_codigo(ui, &tema, &host.orden_ssh_manual(&tunel.reenvio));
+            }
 
             ui.add_space(tema.escala.m);
             widgets::divisor(ui, &tema);
