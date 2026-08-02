@@ -644,11 +644,8 @@ Host preprod
             }),
         );
         host.reenvios.push(
-            Reenvio::local(
-                Extremo::solo_puerto(2222),
-                Extremo::nuevo("192.0.2.40", 22),
-            )
-            .con_salud(Salud::Banner),
+            Reenvio::local(Extremo::solo_puerto(2222), Extremo::nuevo("192.0.2.40", 22))
+                .con_salud(Salud::Banner),
         );
         sincronizar_host(&mut doc, &host).unwrap();
 

@@ -169,7 +169,10 @@ mod pruebas {
             Some(APLICACION)
         );
         assert_eq!(atributos.get("alias").map(String::as_str), Some("preprod"));
-        assert_eq!(atributos.get("usuario").map(String::as_str), Some("usuario"));
+        assert_eq!(
+            atributos.get("usuario").map(String::as_str),
+            Some("usuario")
+        );
     }
 
     #[test]
