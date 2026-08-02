@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Yonder
+GenericName=Gestor de túneles SSH
+Comment=Define, activa y supervisa túneles SSH sobre OpenSSH
+Exec=yonder gui
+Icon=yonder
+Terminal=false
+# Una sola categoría principal (Network) más una adicional. Con dos principales
+# la aplicación aparecería duplicada en el menú.
+Categories=Network;RemoteAccess;
+Keywords=ssh;tunnel;túnel;port;forward;reenvío;proxy;socks;
+StartupNotify=true
+StartupWMClass=yonder

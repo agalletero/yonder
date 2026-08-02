@@ -1,0 +1,13 @@
+/target
+/dist
+paquete/
+
+# Documento de trabajo interno: no se publica.
+/gestor-tuneles-ssh-objetivos.md
+
+# Restos de la prueba de extremo a extremo
+/pruebas/trabajo/
+/pruebas/hogar-falso/
+
+*.swp
+*~

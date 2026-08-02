@@ -1,0 +1,80 @@
+[package]
+name = "yonder"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Gestor gráfico de túneles SSH para Linux — orquestador sobre OpenSSH"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/agalletero/yonder"
+keywords = ["ssh", "tunnel", "gui", "egui", "linux"]
+categories = ["command-line-utilities", "network-programming"]
+
+[lib]
+name = "yonder"
+path = "src/lib.rs"
+
+[[bin]]
+name = "yonder"
+path = "src/main.rs"
+
+# Binario auxiliar de §5.1: deliberadamente trivial, sin dependencias de GUI.
+[[bin]]
+name = "yonder-askpass"
+path = "src/bin/askpass.rs"
+
+[dependencies]
+# --- GUI (fase 3) ---
+eframe = { version = "0.32", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+egui = "0.32"
+egui_extras = { version = "0.32", features = ["svg"] }
+
+# --- Estado local (§3.4: solo ejecución y preferencias, nunca credenciales) ---
+# "bundled" compila SQLite dentro del binario: sin dependencia del sistema.
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# --- Secretos (§3.4) ---
+oo7 = { version = "0.3", default-features = false, features = [
+    "tokio",
+    "native_crypto",
+] }
+tokio = { version = "1", features = ["rt", "time"] }
+
+# --- CLI (fase 1) ---
+clap = { version = "4", features = ["derive"] }
+
+# --- Serialización de preferencias y del protocolo del askpass ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# --- Errores (§11) ---
+thiserror = "2"
+anyhow = "1"
+
+# --- Log (§11: mensajes en español) ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- Utilidades ---
+dirs = "5"              # rutas XDG (§6): ninguna ruta absoluta codificada
+wait-timeout = "0.2"    # §11: todo comando externo con timeout
+rand = "0.8"            # jitter del retardo exponencial (§3.3)
+sha2 = "0.10"           # nombre estable del socket de control (§6)
+libc = "0.2"            # permisos 0600 del socket del askpass
+tempfile = "3"          # fichero intermedio para «ssh-keygen -l» (§5.2)
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+# Sin `panic = "abort"` a propósito. Ahorraría algo de tamaño, pero convertiría
+# el pánico de un hilo secundario —el que escanea una clave de host, por
+# ejemplo— en la muerte de toda la ventana. Con desenrollado, ese hilo se cae
+# solo, la tarea se da por cancelada y el resto de túneles sigue supervisado.

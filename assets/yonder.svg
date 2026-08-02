@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Icono de la aplicación.
+
+  El glifo es «waypoints» de Lucide (licencia ISC, véase assets/iconos/LICENCIA),
+  el mismo que la interfaz usa como identidad, sobre el acento del tema oscuro.
+  Que el icono del lanzador y el de la ventana sean el mismo dibujo no es un
+  detalle: es lo que hace que se reconozca de un vistazo en la barra de tareas.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1F2A33"/>
+      <stop offset="1" stop-color="#14161A"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#fondo)"/>
+  <rect x="4.5" y="4.5" width="119" height="119" rx="25.5" fill="none"
+        stroke="#2C313A" stroke-width="1"/>
+
+  <g transform="translate(24 24) scale(3.333)"
+     fill="none" stroke="#4FC3B0" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="m10.586 5.414-5.172 5.172"/>
+    <path d="m18.586 13.414-5.172 5.172"/>
+    <path d="M6 12h12"/>
+    <circle cx="12" cy="20" r="2"/>
+    <circle cx="12" cy="4" r="2"/>
+    <circle cx="20" cy="12" r="2"/>
+    <circle cx="4" cy="12" r="2"/>
+  </g>
+</svg>

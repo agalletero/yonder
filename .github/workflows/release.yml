@@ -1,0 +1,167 @@
+name: Compilar y publicar
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  pruebas:
+    name: Pruebas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de compilación
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxkbcommon-dev \
+                                  libwayland-dev libxcb1-dev bubblewrap
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formato
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Pruebas unitarias
+        run: cargo test --all
+
+      - name: Prueba de extremo a extremo
+        run: |
+          cargo build
+          pruebas/e2e-aislado.sh
+
+  paquetes:
+    name: Binario, .deb y .rpm
+    needs: pruebas
+    runs-on: ubuntu-latest
+    # Se compila dentro de un contenedor con glibc antigua a propósito: un
+    # binario enlazado contra una glibc nueva no arranca en distribuciones
+    # anteriores, y al revés sí funciona. Los paquetes se construyen aquí
+    # mismo, del mismo binario, para que lo que se publica sea lo que se probó.
+    container: ubuntu:22.04
+    steps:
+      - name: Herramientas base
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            curl build-essential pkg-config git \
+            dpkg-dev rpm file \
+            libxkbcommon-dev libwayland-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libx11-dev libxi-dev libxcursor-dev libxrandr-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Compilar
+        run: cargo build --release --locked
+
+      - name: Comprobar la glibc mínima exigida
+        run: |
+          echo "--- versiones de glibc que pide el binario ---"
+          objdump -T target/release/yonder \
+            | grep -oP 'GLIBC_\K[0-9.]+' | sort -uV | tail -5
+          echo "--- bibliotecas enlazadas ---"
+          ldd target/release/yonder
+          echo "--- bibliotecas que se cargan con dlopen ---"
+          echo "(estas NO salen en ldd y son las que los paquetes declaran a mano)"
+          strings -a target/release/yonder \
+            | grep -oE 'lib[A-Za-z0-9_+-]+\.so(\.[0-9]+)*' | sort -u
+
+      - name: Construir el .deb
+        run: empaquetado/construir-deb.sh dist
+
+      - name: Construir el .rpm
+        run: empaquetado/construir-rpm.sh dist
+
+      - name: Comprobar que el .deb queda usable
+        run: |
+          raiz="$(mktemp -d)"
+          mkdir -p "$raiz"/var/lib/dpkg/{info,updates,triggers}
+          : > "$raiz/var/lib/dpkg/status"
+          dpkg --root="$raiz" --force-depends --install dist/*.deb
+          test -x "$raiz/usr/bin/yonder"
+          test -x "$raiz/usr/bin/yonder-askpass"
+          "$raiz/usr/bin/yonder" --version
+          dpkg --root="$raiz" --force-depends --purge yonder
+          test ! -e "$raiz/usr/bin/yonder"
+          echo "[INFO] el .deb instala, arranca y purga limpio"
+
+      - name: Comprobar el contenido del .rpm
+        run: |
+          for paquete in dist/*.rpm; do
+            echo "--- $paquete ---"
+            rpm -qip "$paquete"
+            rpm -qlp "$paquete"
+            echo "--- dependencias ---"
+            rpm -qRp "$paquete"
+            # Si el .rpm no exigiera las bibliotecas gráficas, se instalaría
+            # limpiamente en una máquina donde la ventana no puede abrirse.
+            rpm -qRp "$paquete" | grep -q 'libGL' \
+              || { echo "[ERR] al .rpm le falta la dependencia de libGL"; exit 1; }
+          done
+
+      - name: Empaquetar también el tarball
+        run: |
+          mkdir -p paquete
+          cp target/release/yonder target/release/yonder-askpass paquete/
+          cp README.md LICENSE paquete/
+          tar czf dist/yonder-linux-x86_64.tar.gz -C paquete .
+          cd dist && sha256sum ./* > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquetes-linux-x86_64
+          path: dist/*
+
+      - name: Publicar la release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            ## Instalación
+
+            **Debian, Ubuntu y derivadas** — instala también las dependencias:
+
+                sudo apt install ./yonder_*_amd64.deb
+
+            **Fedora, RHEL, openSUSE:**
+
+                sudo dnf install ./yonder-*.rpm
+
+            **Cualquier otra distribución** — descomprimir y listo, pero las
+            bibliotecas gráficas tienen que estar ya en el sistema:
+
+                tar xzf yonder-linux-x86_64.tar.gz
+                install -m 755 yonder yonder-askpass ~/.local/bin/
+
+            Los dos binarios tienen que quedar en el mismo directorio: `yonder`
+            busca a `yonder-askpass` a su lado para pedir contraseñas desde la
+            ventana.
+
+            Compilado contra la glibc de Ubuntu 22.04: funciona en esa y en todo
+            lo posterior.
+
+            ## Puertos por debajo de 1024
+
+            El paquete no concede capacidades por su cuenta. Si los necesitas:
+
+                sudo setcap 'cap_net_bind_service=+ep' /usr/bin/yonder
