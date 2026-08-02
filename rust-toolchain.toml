@@ -1,0 +1,28 @@
+# Versión de Rust fijada, y no el canal «stable».
+#
+# La CI compila con «-D warnings», de modo que cualquier lint nuevo que
+# introduzca una versión de Rust pone el repositorio en rojo sin que nadie haya
+# tocado el código. Ocurrió dos veces el mismo día: «collapsible_match» primero
+# y «float_literal_f32_fallback» después, ambos en una toolchain más reciente
+# que la del equipo donde se escribió el código. Con el canal flotante el fallo
+# aparece cuando se publica una versión de Rust, que es justo cuando nadie lo
+# está esperando.
+#
+# Fijarla tiene un precio, y es que subirla pasa a ser una tarea explícita.
+# Para hacerlo:
+#
+#   1. rustup toolchain install <version>
+#   2. cambiar «channel» aquí abajo
+#   3. cargo fmt --all && cargo clippy --all-targets -- -D warnings
+#   4. corregir lo que aparezca, en su propio commit
+#
+# Los avisos se arreglan así en el momento que se elige, con el código
+# delante, y no en mitad de una publicación.
+#
+# rustup instala esta versión sola la primera vez que se ejecuta «cargo» en el
+# directorio, así que no hace falta preparar nada a mano ni en la CI.
+
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
