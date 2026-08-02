@@ -183,7 +183,7 @@ fn fila(
             tema.paleta.superficie
         })
         .stroke(egui::Stroke::new(
-            1.0,
+            1.0_f32,
             if seleccionada {
                 tema.paleta.acento
             } else {

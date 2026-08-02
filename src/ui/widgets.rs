@@ -174,7 +174,7 @@ pub fn boton_secundario(
             .color(tinta),
     )
     .fill(Color32::TRANSPARENT)
-    .stroke(Stroke::new(1.0, tema.paleta.borde))
+    .stroke(Stroke::new(1.0_f32, tema.paleta.borde))
     .corner_radius(CornerRadius::same(tema.radios.medio));
 
     ui.add_enabled(activo, boton)
@@ -194,7 +194,7 @@ pub fn boton_destructivo(
             .color(tema.paleta.error),
     )
     .fill(Color32::TRANSPARENT)
-    .stroke(Stroke::new(1.0, tema.paleta.error.gamma_multiply(0.5)))
+    .stroke(Stroke::new(1.0_f32, tema.paleta.error.gamma_multiply(0.5)))
     .corner_radius(CornerRadius::same(tema.radios.medio));
     ui.add(boton)
 }
@@ -234,7 +234,7 @@ pub fn divisor(ui: &mut egui::Ui, tema: &Tema) {
     ui.painter().hline(
         rect.x_range(),
         rect.center().y,
-        Stroke::new(1.0, tema.paleta.divisor),
+        Stroke::new(1.0_f32, tema.paleta.divisor),
     );
 }
 
@@ -277,7 +277,7 @@ pub fn caja_aviso(ui: &mut egui::Ui, tema: &Tema, grave: bool, texto: &str) {
 
     egui::Frame::new()
         .fill(fondo)
-        .stroke(Stroke::new(1.0, color.gamma_multiply(0.35)))
+        .stroke(Stroke::new(1.0_f32, color.gamma_multiply(0.35)))
         .corner_radius(CornerRadius::same(tema.radios.medio))
         .inner_margin(tema.margen(tema.escala.m))
         .show(ui, |ui| {
@@ -324,7 +324,7 @@ pub fn casilla(ui: &mut egui::Ui, tema: &Tema, marcada: &mut bool) -> egui::Resp
                 rect,
                 radio,
                 Stroke::new(
-                    1.0,
+                    1.0_f32,
                     if encima {
                         tema.paleta.borde_fuerte
                     } else {

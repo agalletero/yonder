@@ -289,7 +289,7 @@ impl Tema {
     pub fn marco_tarjeta(&self) -> egui::Frame {
         egui::Frame::new()
             .fill(self.paleta.superficie)
-            .stroke(Stroke::new(1.0, self.paleta.borde))
+            .stroke(Stroke::new(1.0_f32, self.paleta.borde))
             .corner_radius(CornerRadius::same(self.radios.grande))
             .inner_margin(self.margen(self.escala.m))
             .shadow(self.sombra_tarjeta())
@@ -306,7 +306,7 @@ impl Tema {
     pub fn marco_modal(&self) -> egui::Frame {
         egui::Frame::new()
             .fill(self.paleta.elevado)
-            .stroke(Stroke::new(1.0, self.paleta.borde_fuerte))
+            .stroke(Stroke::new(1.0_f32, self.paleta.borde_fuerte))
             .corner_radius(CornerRadius::same(self.radios.grande))
             .inner_margin(self.margen(self.escala.xl))
             .shadow(self.sombra_modal())
@@ -381,11 +381,11 @@ impl Tema {
         visuales.warn_fg_color = paleta.aviso;
         visuales.error_fg_color = paleta.error;
         visuales.selection.bg_fill = paleta.acento_suave;
-        visuales.selection.stroke = Stroke::new(1.0, paleta.acento);
+        visuales.selection.stroke = Stroke::new(1.0_f32, paleta.acento);
 
         visuales.window_corner_radius = CornerRadius::same(self.radios.grande);
         visuales.menu_corner_radius = CornerRadius::same(self.radios.medio);
-        visuales.window_stroke = Stroke::new(1.0, paleta.borde);
+        visuales.window_stroke = Stroke::new(1.0_f32, paleta.borde);
         visuales.window_shadow = self.sombra_modal();
         visuales.popup_shadow = self.sombra_modal();
 
@@ -394,8 +394,8 @@ impl Tema {
         // Elemento en reposo: sin fondo. El cromo baja, el contenido sube.
         visuales.widgets.noninteractive.bg_fill = paleta.superficie;
         visuales.widgets.noninteractive.weak_bg_fill = paleta.superficie;
-        visuales.widgets.noninteractive.bg_stroke = Stroke::new(1.0, paleta.divisor);
-        visuales.widgets.noninteractive.fg_stroke = Stroke::new(1.0, paleta.texto_secundario);
+        visuales.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, paleta.divisor);
+        visuales.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, paleta.texto_secundario);
         visuales.widgets.noninteractive.corner_radius = radio;
         visuales.widgets.noninteractive.expansion = 0.0;
 
@@ -405,30 +405,30 @@ impl Tema {
         } else {
             paleta.superficie
         };
-        visuales.widgets.inactive.bg_stroke = Stroke::new(1.0, paleta.borde);
-        visuales.widgets.inactive.fg_stroke = Stroke::new(1.0, paleta.texto);
+        visuales.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, paleta.borde);
+        visuales.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, paleta.texto);
         visuales.widgets.inactive.corner_radius = radio;
         visuales.widgets.inactive.expansion = 0.0;
 
         visuales.widgets.hovered.bg_fill = paleta.hover;
         visuales.widgets.hovered.weak_bg_fill = paleta.hover;
-        visuales.widgets.hovered.bg_stroke = Stroke::new(1.0, paleta.borde_fuerte);
-        visuales.widgets.hovered.fg_stroke = Stroke::new(1.0, paleta.texto);
+        visuales.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, paleta.borde_fuerte);
+        visuales.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, paleta.texto);
         visuales.widgets.hovered.corner_radius = radio;
         // Sin salto de tamaño al pasar por encima: la precisión es no moverse.
         visuales.widgets.hovered.expansion = 0.0;
 
         visuales.widgets.active.bg_fill = paleta.pulsado;
         visuales.widgets.active.weak_bg_fill = paleta.pulsado;
-        visuales.widgets.active.bg_stroke = Stroke::new(1.0, paleta.acento);
-        visuales.widgets.active.fg_stroke = Stroke::new(1.0, paleta.texto);
+        visuales.widgets.active.bg_stroke = Stroke::new(1.0_f32, paleta.acento);
+        visuales.widgets.active.fg_stroke = Stroke::new(1.0_f32, paleta.texto);
         visuales.widgets.active.corner_radius = radio;
         visuales.widgets.active.expansion = 0.0;
 
         visuales.widgets.open.bg_fill = paleta.elevado;
         visuales.widgets.open.weak_bg_fill = paleta.elevado;
-        visuales.widgets.open.bg_stroke = Stroke::new(1.0, paleta.borde_fuerte);
-        visuales.widgets.open.fg_stroke = Stroke::new(1.0, paleta.texto);
+        visuales.widgets.open.bg_stroke = Stroke::new(1.0_f32, paleta.borde_fuerte);
+        visuales.widgets.open.fg_stroke = Stroke::new(1.0_f32, paleta.texto);
         visuales.widgets.open.corner_radius = radio;
 
         // `strong` sube la jerarquía por color, no por tamaño.

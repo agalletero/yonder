@@ -958,7 +958,7 @@ pub fn bloque_codigo(ui: &mut egui::Ui, tema: &Tema, texto: &str) {
         } else {
             tema.paleta.hover
         })
-        .stroke(egui::Stroke::new(1.0, tema.paleta.borde))
+        .stroke(egui::Stroke::new(1.0_f32, tema.paleta.borde))
         .corner_radius(egui::CornerRadius::same(tema.radios.medio))
         .inner_margin(tema.margen(tema.escala.s))
         .show(ui, |ui| {
