@@ -9,5 +9,18 @@ paquete/
 /pruebas/trabajo/
 /pruebas/hogar-falso/
 
+# Imágenes sueltas en la raíz.
+#
+# Las del proyecto viven en docs/capturas/ y en assets/, y las reglas van
+# ancladas con «/» para no tocarlas. Una imagen que aparece en la raíz es
+# material de trabajo dejado de paso, y una captura de pantalla puede llevar
+# dentro nombres, direcciones o rutas que no deben publicarse. Eso no lo
+# detecta ningún «grep» sobre el árbol: hay que abrir el fichero y mirarlo.
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.gif
+
 *.swp
 *~
