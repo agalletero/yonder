@@ -39,6 +39,17 @@ jobs:
 
       - name: Prueba de extremo a extremo
         run: |
+          # Ubuntu 24.04 en adelante restringe los espacios de nombres de
+          # usuario sin privilegios con AppArmor, y sin ellos «bwrap» no puede
+          # montar el hogar falso.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+          # El guion se salta la prueba cuando no puede aislar, que es lo
+          # correcto en el equipo de alguien pero no aquí: una prueba omitida
+          # en silencio dejaría el trabajo en verde sin haber comprobado nada.
+          bwrap --dev-bind / / --die-with-parent true \
+            || { echo "[ERR] «bwrap» sigue sin poder aislar en el runner"; exit 1; }
+
           cargo build
           pruebas/e2e-aislado.sh
 

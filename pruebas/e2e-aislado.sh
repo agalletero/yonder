@@ -27,6 +27,21 @@ if ! command -v bwrap >/dev/null 2>&1; then
     exit 0
 fi
 
+# No basta con que el binario exista: tiene que poder crear el espacio de
+# nombres. Debian y Ubuntu 24.04 en adelante restringen los espacios de nombres
+# de usuario sin privilegios mediante AppArmor, y ahí «bwrap» está instalado
+# pero falla con «setting up uid map: Permission denied». Comprobarlo de verdad
+# es lo que hace que esta prueba se salte en vez de morir, que es lo prometido
+# tres líneas más arriba.
+if ! bwrap --dev-bind / / --die-with-parent true >/dev/null 2>&1; then
+    echo "[WARN] «bwrap» no puede crear el espacio de nombres en este sistema"
+    echo "[WARN] suele ser la restricción de AppArmor; se habilita con:"
+    echo "[WARN]     sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"
+    echo "[WARN] se omite la prueba de extremo a extremo: sin aislamiento real"
+    echo "[WARN] escribiría en tu ~/.ssh, así que no se ejecuta"
+    exit 0
+fi
+
 if [ ! -x "$BASE/target/debug/yonder" ]; then
     echo "[ERR] falta target/debug/yonder; ejecuta «cargo build» primero"
     exit 1
