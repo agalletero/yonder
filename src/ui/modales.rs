@@ -730,23 +730,55 @@ fn ajustes(aplicacion: &mut Aplicacion, ui: &mut egui::Ui) -> bool {
     ui.horizontal(|ui| {
         ui.label(tema::cuerpo(&tema, "Tamaño del texto"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Contador con pasos del 5 %, no un deslizador.
+            //
+            // El deslizador recorría del 80 al 200 % en unos pocos centenares
+            // de píxeles: cada píxel de ratón saltaba varios puntos y acertar
+            // un valor concreto era cuestión de suerte. Aquí cada paso es un
+            // paso, y el valor se puede teclear.
             let mut actual = aplicacion.preferencias_mut().escala_interfaz;
-            if ui
-                .add(
-                    egui::Slider::new(&mut actual, 0.8..=2.0)
-                        .custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
-                        .custom_parser(|t| {
-                            t.trim_end_matches('%')
-                                .trim()
-                                .parse::<f64>()
-                                .ok()
-                                .map(|v| v / 100.0)
-                        }),
-                )
-                .changed()
+            if iconos::boton(
+                ui,
+                Icono::PLEGAR,
+                tema.paleta.texto_secundario,
+                "Más grande (Ctrl +)",
+            )
+            .clicked()
             {
-                aplicacion.preferencias_mut().escala_interfaz = actual;
+                actual = super::escalon_siguiente(actual, 1);
                 cambiado = true;
+            }
+            let respuesta = ui.add(
+                egui::DragValue::new(&mut actual)
+                    .speed(0.002)
+                    .range(super::ESCALA_MINIMA..=super::ESCALA_MAXIMA)
+                    .custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
+                    .custom_parser(|t| {
+                        t.trim()
+                            .trim_end_matches('%')
+                            .trim()
+                            .parse::<f64>()
+                            .ok()
+                            .map(|v| v / 100.0)
+                    }),
+            );
+            if respuesta.changed() {
+                cambiado = true;
+            }
+            if iconos::boton(
+                ui,
+                Icono::ABIERTO,
+                tema.paleta.texto_secundario,
+                "Más pequeño (Ctrl -)",
+            )
+            .clicked()
+            {
+                actual = super::escalon_siguiente(actual, -1);
+                cambiado = true;
+            }
+            if cambiado {
+                aplicacion.preferencias_mut().escala_interfaz =
+                    actual.clamp(super::ESCALA_MINIMA, super::ESCALA_MAXIMA);
             }
         });
     });

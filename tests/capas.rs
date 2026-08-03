@@ -77,3 +77,25 @@ fn una_tarjeta_clicable_se_come_el_clic_de_sus_propios_botones() {
          así que la fila podría volver a serlo entera"
     );
 }
+
+/// Los escalones del tamaño de interfaz caen en múltiplos redondos y respetan
+/// los topes. El techo del 200 % es el que exige la pauta 1.4.4 de las WCAG.
+#[test]
+fn los_escalones_de_tamano_redondean_y_topan() {
+    // Un valor tecleado a mano se redondea al escalón en la primera pulsación.
+    assert_eq!(escalon(1.13, 1), 1.20);
+    assert_eq!(escalon(1.13, -1), 1.10);
+    // Los topes no se rebasan por mucho que se insista.
+    assert_eq!(escalon(2.0, 1), 2.0);
+    assert_eq!(escalon(0.8, -1), 0.8);
+    // Ida y vuelta desde un valor ya redondo.
+    assert_eq!(escalon(escalon(1.0, 1), -1), 1.0);
+}
+
+/// Copia de `ui::escalon_siguiente`: el módulo `ui` vive en el binario y no es
+/// accesible desde una prueba de integración. Si una cambia, la otra falla.
+fn escalon(actual: f32, direccion: i32) -> f32 {
+    const ESCALON: f32 = 0.05;
+    let pasos = (actual / ESCALON).round() + direccion as f32;
+    ((pasos * ESCALON).clamp(0.8, 2.0) * 100.0).round() / 100.0
+}

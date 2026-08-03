@@ -43,6 +43,26 @@ use tema::Tema;
 /// Cuánto se queda un aviso en pantalla antes de desvanecerse.
 const DURACION_AVISO: Duration = Duration::from_secs(8);
 
+/// Recorrido del tamaño de la interfaz.
+///
+/// El techo del 200 % no es arbitrario: es lo que pide la pauta 1.4.4 de las
+/// WCAG, que exige poder ampliar el texto hasta el doble sin que la maquetación
+/// se rompa ni se pierda contenido.
+pub const ESCALA_MINIMA: f32 = 0.8;
+pub const ESCALA_MAXIMA: f32 = 2.0;
+/// Salto de cada pulsación, en tanto por uno.
+const ESCALON: f32 = 0.05;
+
+/// El siguiente escalón de tamaño en la dirección indicada.
+///
+/// Se redondea al múltiplo del escalón antes de saltar: si el valor viene de
+/// haberlo tecleado o arrastrado —113 %, por ejemplo—, la primera pulsación lo
+/// deja en un número redondo en vez de arrastrar el desajuste para siempre.
+pub fn escalon_siguiente(actual: f32, direccion: i32) -> f32 {
+    let pasos = (actual / ESCALON).round() + direccion as f32;
+    (pasos * ESCALON).clamp(ESCALA_MINIMA, ESCALA_MAXIMA)
+}
+
 /// Arranca la interfaz gráfica.
 pub fn ejecutar() -> anyhow::Result<()> {
     let preferencias = Preferencias::cargar();
@@ -575,9 +595,35 @@ impl Aplicacion {
 
 impl eframe::App for Aplicacion {
     fn update(&mut self, contexto: &egui::Context, _marco: &mut eframe::Frame) {
+        // Atajos de tamaño, los mismos que usa cualquier navegador. Se
+        // consumen para que no lleguen a otro control.
+        let ajuste = contexto.input_mut(|e| {
+            let ctrl = egui::Modifiers::COMMAND;
+            if e.consume_key(ctrl, egui::Key::Plus) || e.consume_key(ctrl, egui::Key::Equals) {
+                1
+            } else if e.consume_key(ctrl, egui::Key::Minus) {
+                -1
+            } else if e.consume_key(ctrl, egui::Key::Num0) {
+                0
+            } else {
+                i32::MIN
+            }
+        });
+        if ajuste != i32::MIN {
+            self.preferencias.escala_interfaz = if ajuste == 0 {
+                1.0
+            } else {
+                escalon_siguiente(self.preferencias.escala_interfaz, ajuste)
+            };
+            self.guardar_preferencias();
+        }
+
         // Escala de la interfaz. El zoom de egui toca letra y espaciado a la
         // vez, así que subirlo no descuadra las cajas.
-        let escala = self.preferencias.escala_interfaz.clamp(0.8, 2.0);
+        let escala = self
+            .preferencias
+            .escala_interfaz
+            .clamp(ESCALA_MINIMA, ESCALA_MAXIMA);
         if (contexto.zoom_factor() - escala).abs() > f32::EPSILON {
             contexto.set_zoom_factor(escala);
         }
