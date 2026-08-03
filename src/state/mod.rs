@@ -422,8 +422,21 @@ impl Motor {
                 true
             };
 
+            // Un maestro vivo con el puerto escuchando es un túnel en pie,
+            // aunque la intención guardada diga que nadie lo pidió. Pasa cuando
+            // el `ssh -f` sobrevive a la sesión que lo abrió: cerrar la ventana,
+            // reinstalar, perder la base de datos. Antes se daba por `Definido`
+            // y quedaba invisible mientras transportaba tráfico, sin manera de
+            // cerrarlo desde la interfaz.
+            let residual = !deseado && maestro_vivo && escuchando;
+            self.estado_mut(&id).residual = residual;
+
             let siguiente = match (deseado, maestro_vivo, escuchando && sano) {
-                // El usuario no lo quiere arriba: lo que se vea es irrelevante.
+                // En pie sin que nadie lo haya pedido: se enseña como lo que es.
+                // No se adopta —el supervisor no lo repara ni lo relevanta—,
+                // solo se hace visible para poder cerrarlo.
+                (false, _, _) if residual && actual != Estado::Cerrando => Estado::Activo,
+                // El usuario no lo quiere arriba y tampoco está en pie.
                 (false, _, _) if actual != Estado::Cerrando => Estado::Definido,
                 (false, _, _) => actual,
 

@@ -205,70 +205,88 @@ fn fila(
 
             widgets::indicador_estado(ui, &tema, estado.estado, iconos::GRANDE);
 
-            // Bloque central: dos líneas de jerarquía descendente.
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = tema.escala.xs;
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = tema.escala.s;
-                    if repetido {
-                        // Mismo host que la fila de arriba: se baja de color,
-                        // no de tamaño, para no romper la rejilla vertical.
-                        ui.label(
-                            egui::RichText::new(&tunel.alias)
-                                .size(tema.tipografia.titulo)
-                                .color(tema.paleta.texto_tenue),
-                        );
-                        widgets::chip_neutro(ui, &tema, Icono::ENLACE, "mismo host");
-                    } else {
-                        ui.label(tema::titulo(&tema, &tunel.alias));
-                        chips_del_host(ui, &tema, host);
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = tema.escala.s;
-                    iconos::mostrar(
-                        ui,
-                        Icono::INTERCAMBIO,
-                        iconos::PEQUENO,
-                        tema.paleta.texto_tenue,
-                    );
-                    ui.label(tema::mono(&tema, tunel.reenvio.descripcion_orientada()));
-                    if tunel.reenvio.salud.atraviesa_el_tunel() {
-                        // Que se vea qué se está comprobando: no es lo mismo
-                        // «el puerto está abierto» que «el servicio responde».
-                        widgets::chip_neutro(
-                            ui,
-                            &tema,
-                            Icono::MEDIDOR,
-                            &tunel.reenvio.salud.etiqueta(),
-                        )
-                        .on_hover_text(tunel.reenvio.salud.explicacion());
-                    }
-                    // El destino solo en la primera fila del host: repetirlo
-                    // sería decir tres veces lo mismo.
-                    if !repetido {
-                        if let Some(host) = host {
-                            ui.label(tema::tenue(&tema, "·"));
-                            ui.label(tema::secundario(&tema, host.destino_completo()));
-                        }
-                    }
-                });
-
-                if !repetido {
-                    if let Some(nota) = host.and_then(|h| h.nota.as_ref()) {
-                        ui.label(tema::tenue(&tema, nota));
-                    }
-                }
-            });
-
-            // Bloque derecho: acciones primero (se dibuja de derecha a izquierda).
+            // Las acciones se reservan su sitio ANTES que el bloque central.
+            //
+            // Al revés —que era como estaba— el bloque central crecía hasta lo
+            // que pedía su contenido y las acciones se pintaban después sobre
+            // lo que quedara, que con un destino largo era nada: el botón
+            // acababa encima del texto. Con la disposición de derecha a
+            // izquierda por fuera, los botones toman su ancho real y al centro
+            // le queda exactamente el resto, sin ninguna constante que acertar.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = tema.escala.xs;
                 acciones_de_fila(ui, &tema, tunel, &estado, host, acciones);
                 ui.add_space(tema.escala.s);
                 ui.label(tema::tenue(&tema, resumen_temporal(&estado)));
+
+                // Bloque central: dos líneas de jerarquía descendente.
+                ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                    ui.spacing_mut().item_spacing.y = tema.escala.xs;
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = tema.escala.s;
+                        if repetido {
+                            // Mismo host que la fila de arriba: se baja de color,
+                            // no de tamaño, para no romper la rejilla vertical.
+                            ui.label(
+                                egui::RichText::new(&tunel.alias)
+                                    .size(tema.tipografia.titulo)
+                                    .color(tema.paleta.texto_tenue),
+                            );
+                            widgets::chip_neutro(ui, &tema, Icono::ENLACE, "mismo host");
+                        } else {
+                            ui.label(tema::titulo(&tema, &tunel.alias));
+                            chips_del_host(ui, &tema, host);
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = tema.escala.s;
+                        iconos::mostrar(
+                            ui,
+                            Icono::INTERCAMBIO,
+                            iconos::PEQUENO,
+                            tema.paleta.texto_tenue,
+                        );
+                        ui.label(tema::mono(&tema, tunel.reenvio.descripcion_orientada()));
+                        if tunel.reenvio.salud.atraviesa_el_tunel() {
+                            // Que se vea qué se está comprobando: no es lo mismo
+                            // «el puerto está abierto» que «el servicio responde».
+                            widgets::chip_neutro(
+                                ui,
+                                &tema,
+                                Icono::MEDIDOR,
+                                &tunel.reenvio.salud.etiqueta(),
+                            )
+                            .on_hover_text(tunel.reenvio.salud.explicacion());
+                        }
+                        // El destino solo en la primera fila del host: repetirlo
+                        // sería decir tres veces lo mismo.
+                        if !repetido {
+                            if let Some(host) = host {
+                                ui.label(tema::tenue(&tema, "·"));
+                                // Recortado: es el dato menos importante de la
+                                // línea, y con un destino largo era el que empujaba
+                                // la fila hasta desbordarla. El valor entero está en
+                                // el detalle.
+                                ui.add(
+                                    egui::Label::new(tema::secundario(
+                                        &tema,
+                                        host.destino_completo(),
+                                    ))
+                                    .truncate(),
+                                )
+                                .on_hover_text(host.destino_completo());
+                            }
+                        }
+                    });
+
+                    if !repetido {
+                        if let Some(nota) = host.and_then(|h| h.nota.as_ref()) {
+                            ui.label(tema::tenue(&tema, nota));
+                        }
+                    }
+                });
             });
         });
     });

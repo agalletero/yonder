@@ -138,6 +138,19 @@ pub struct EstadoTunel {
     pub ultimo_error: Option<String>,
     /// PID del maestro, si está vivo.
     pub pid_maestro: Option<u32>,
+    /// El túnel está en pie sin que nadie lo haya pedido en esta instalación.
+    ///
+    /// Los maestros se lanzan con `ssh -f` y no son hijos de la aplicación:
+    /// sobreviven a cerrar la ventana, a reiniciarla y a perder la base de
+    /// datos. Cuando la intención guardada dice «no lo quiero arriba» y la
+    /// realidad dice que hay un maestro vivo con el puerto escuchando, la
+    /// realidad manda —el túnel transporta— pero la aplicación no lo adopta:
+    /// no lo repara si se cae ni lo levanta al arrancar. Solo lo enseña, para
+    /// que se pueda cerrar.
+    ///
+    /// Sin esto, un residual quedaba invisible: la interfaz decía `Definido`
+    /// mientras el tráfico pasaba, y no ofrecía ninguna forma de cerrarlo.
+    pub residual: bool,
 }
 
 impl EstadoTunel {
@@ -150,6 +163,7 @@ impl EstadoTunel {
             proximo_intento: None,
             ultimo_error: None,
             pid_maestro: None,
+            residual: false,
         }
     }
 
