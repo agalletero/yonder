@@ -556,26 +556,9 @@ impl Aplicacion {
         });
     }
 
-    // --- Panel de detalle --------------------------------------------------
-
-    fn panel_detalle(&mut self, contexto: &egui::Context) {
-        let Some(id) = self.detalle.clone() else {
-            return;
-        };
-        let tema = self.tema;
-        let marco = egui::Frame::new()
-            .fill(tema.paleta.superficie)
-            .inner_margin(tema.margen(tema.escala.l));
-
-        egui::SidePanel::right("detalle")
-            .frame(marco)
-            .resizable(true)
-            .default_width(320.0)
-            .width_range(280.0..=460.0)
-            .show(contexto, |ui| {
-                lista::panel_detalle(self, ui, &id);
-            });
-    }
+    // El detalle ya no es un panel lateral: se despliega dentro de la lista,
+    // bajo la fila de su túnel (véase `lista::mostrar`). Un panel a la derecha
+    // le quitaba ancho a todas las filas para enseñar los datos de una sola.
 
     // --- Preferencias ------------------------------------------------------
 
@@ -595,7 +578,6 @@ impl eframe::App for Aplicacion {
         self.refrescar(contexto);
         self.barra_superior(contexto);
         self.barra_estado(contexto);
-        self.panel_detalle(contexto);
 
         let tema = self.tema;
         egui::CentralPanel::default()

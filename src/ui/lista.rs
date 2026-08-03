@@ -71,6 +71,28 @@ pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: &[Tunel
                 // solo añade ruido: en las repeticiones se bajan de color.
                 let repetido = alias_anterior == Some(tunel.alias.as_str());
                 fila(aplicacion, ui, tunel, repetido, &mut acciones);
+
+                // El detalle se despliega aquí mismo, bajo su fila, y empuja
+                // hacia abajo los túneles siguientes. Antes era un panel a la
+                // derecha: robaba ancho a todas las filas para enseñar los datos
+                // de una sola, y obligaba a mirar a otro sitio para leer sobre
+                // lo que se acababa de pulsar.
+                let id = tunel.id();
+                if aplicacion.detalle.as_deref() == Some(id.as_str()) {
+                    let marco = egui::Frame::new()
+                        .fill(if tema.paleta.oscuro {
+                            tema.paleta.fondo
+                        } else {
+                            tema.paleta.hover
+                        })
+                        .stroke(egui::Stroke::new(1.0_f32, tema.paleta.acento))
+                        .corner_radius(egui::CornerRadius::same(tema.radios.medio))
+                        .inner_margin(tema.margen(tema.escala.m));
+                    marco.show(ui, |ui| {
+                        panel_detalle(aplicacion, ui, &id);
+                    });
+                }
+
                 alias_anterior = Some(&tunel.alias);
             }
             ui.add_space(tema.escala.l);
@@ -604,9 +626,11 @@ pub fn panel_detalle(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, id: &str) {
     ui.add_space(tema.escala.m);
     widgets::divisor(ui, &tema);
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
+    // Sin `ScrollArea` propio: esto se despliega dentro del de la lista, y dos
+    // anidados se pelean por la rueda del ratón. Al crecer empuja hacia abajo
+    // los túneles siguientes, que es el comportamiento de un acordeón.
+    {
+        {
             widgets::cabecera_seccion(ui, &tema, "Reenvío");
             widgets::propiedad(ui, &tema, "Tipo", tunel.reenvio.tipo.etiqueta());
             widgets::propiedad(ui, &tema, "Escucha", &tunel.reenvio.escucha.to_string());
@@ -726,7 +750,8 @@ pub fn panel_detalle(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, id: &str) {
                 }
                 ui.label(tema::cuerpo(&tema, "Levantar al abrir la aplicación"));
             });
-        });
+        }
+    }
 }
 
 /// Aplica las acciones acumuladas durante el recorrido de la lista.
