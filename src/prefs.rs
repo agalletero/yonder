@@ -52,7 +52,7 @@ pub enum Densidad {
 impl Densidad {
     pub fn factor(&self) -> f32 {
         match self {
-            Densidad::Compacta => 0.75,
+            Densidad::Compacta => 0.6,
             Densidad::Comoda => 1.0,
         }
     }

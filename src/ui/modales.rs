@@ -730,20 +730,23 @@ fn ajustes(aplicacion: &mut Aplicacion, ui: &mut egui::Ui) -> bool {
     ui.horizontal(|ui| {
         ui.label(tema::cuerpo(&tema, "Tamaño del texto"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let actual = aplicacion.preferencias_mut().escala_interfaz;
-            for (factor, etiqueta) in [
-                (1.4_f32, "Muy grande"),
-                (1.2, "Grande"),
-                (1.0, "Normal"),
-                (0.9, "Pequeño"),
-            ] {
-                if ui
-                    .selectable_label((actual - factor).abs() < 0.01, etiqueta)
-                    .clicked()
-                {
-                    aplicacion.preferencias_mut().escala_interfaz = factor;
-                    cambiado = true;
-                }
+            let mut actual = aplicacion.preferencias_mut().escala_interfaz;
+            if ui
+                .add(
+                    egui::Slider::new(&mut actual, 0.8..=2.0)
+                        .custom_formatter(|v, _| format!("{:.0} %", v * 100.0))
+                        .custom_parser(|t| {
+                            t.trim_end_matches('%')
+                                .trim()
+                                .parse::<f64>()
+                                .ok()
+                                .map(|v| v / 100.0)
+                        }),
+                )
+                .changed()
+            {
+                aplicacion.preferencias_mut().escala_interfaz = actual;
+                cambiado = true;
             }
         });
     });

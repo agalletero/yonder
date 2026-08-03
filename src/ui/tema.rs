@@ -74,12 +74,22 @@ pub struct Tipografia {
     pub cabecera: f32,
 }
 
+/// Escala tipográfica, alineada con lo que recomienda la práctica habitual:
+/// 16 px para el cuerpo, 14 para el texto secundario y 12 como suelo para pies
+/// y etiquetas. La escala anterior —13/12/11— quedaba unos 3 px por debajo en
+/// todos los peldaños.
+///
+/// El suelo de 12 no es solo cuestión de vista cansada. En los paneles OLED de
+/// escritorio, que no usan disposición RGB en línea —QD-OLED en triángulo,
+/// WOLED con subpíxel blanco—, el fringing de color se ceba precisamente con el
+/// texto de 9 a 10 píxeles: por debajo de 12 el texto no solo se lee peor, se
+/// ve con flecos de color alrededor.
 pub const TIPOGRAFIA: Tipografia = Tipografia {
-    micro: 11.0,
-    pequeno: 12.0,
-    cuerpo: 13.0,
-    titulo: 15.0,
-    cabecera: 18.0,
+    micro: 12.0,
+    pequeno: 14.0,
+    cuerpo: 16.0,
+    titulo: 18.0,
+    cabecera: 22.0,
 };
 
 /// Paleta por roles semánticos.
@@ -353,7 +363,12 @@ impl Tema {
 
         // --- Espaciado: todo sale de la rejilla ---
         let espaciado = &mut estilo.spacing;
-        espaciado.item_spacing = egui::vec2(self.escala.s, self.escala.s);
+        // El hueco vertical es la mitad del horizontal. Con el mismo valor en
+        // los dos ejes, una lista de propiedades —etiqueta y valor, una por
+        // línea— queda tan separada que hay que recorrer la pantalla con la
+        // vista para relacionar dos datos contiguos. En horizontal el hueco
+        // separa elementos distintos y sí hace falta.
+        espaciado.item_spacing = egui::vec2(self.escala.s, self.escala.xs);
         espaciado.button_padding = egui::vec2(self.escala.m, self.escala.xs + 2.0);
         espaciado.menu_margin = self.margen(self.escala.s);
         espaciado.indent = self.escala.l;
