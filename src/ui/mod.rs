@@ -575,6 +575,13 @@ impl Aplicacion {
 
 impl eframe::App for Aplicacion {
     fn update(&mut self, contexto: &egui::Context, _marco: &mut eframe::Frame) {
+        // Escala de la interfaz. El zoom de egui toca letra y espaciado a la
+        // vez, así que subirlo no descuadra las cajas.
+        let escala = self.preferencias.escala_interfaz.clamp(0.8, 2.0);
+        if (contexto.zoom_factor() - escala).abs() > f32::EPSILON {
+            contexto.set_zoom_factor(escala);
+        }
+
         self.refrescar(contexto);
         self.barra_superior(contexto);
         self.barra_estado(contexto);

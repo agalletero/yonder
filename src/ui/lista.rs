@@ -237,7 +237,7 @@ fn fila(
             // le queda exactamente el resto, sin ninguna constante que acertar.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = tema.escala.xs;
-                acciones_de_fila(ui, &tema, tunel, &estado, host, acciones);
+                acciones_de_fila(ui, &tema, tunel, &estado, host, seleccionada, acciones);
                 ui.add_space(tema.escala.s);
                 ui.label(tema::tenue(&tema, resumen_temporal(&estado)));
 
@@ -321,13 +321,17 @@ fn fila(
         tema.escala.s,
     );
 
-    // La fila entera abre el detalle, pero solo si el clic no se lo ha llevado
-    // ya un control de dentro. Sin esta comprobación la tarjeta, que se
-    // registra la última, quedaría por encima de sus propios botones.
-    let clic = interior.response.interact(Sense::click());
-    if clic.clicked() && acciones.len() == acciones_al_entrar {
-        acciones.push(Accion::VerDetalle(id.clone()));
-    }
+    // La fila NO se hace clicable entera, y no es un capricho de diseño.
+    //
+    // Hacerlo exige llamar a `interact` sobre el marco, que se registra después
+    // de su contenido y por tanto queda por encima: la tarjeta se llevaba los
+    // clics de sus propios botones y estos no llegaban a enterarse. El síntoma
+    // era que pulsar «Levantar» no levantaba nada y solo abría el detalle.
+    // Está fijado en «tests/capas.rs».
+    //
+    // El detalle se abre desde su propio control, que además es lo que un
+    // acordeón espera: una cabecera con su desplegador.
+    let _ = acciones_al_entrar;
 
     // El error va bajo la fila, no en un tooltip: un fallo que hay que
     // descubrir pasando el ratón por encima es un fallo escondido.
@@ -380,11 +384,34 @@ fn acciones_de_fila(
     tunel: &Tunel,
     estado: &EstadoTunel,
     host: Option<&yonder::modelo::Host>,
+    desplegado: bool,
     acciones: &mut Vec<Accion>,
 ) {
     let id = tunel.id();
     let editable = host.map(|h| h.origen.editable()).unwrap_or(false);
     let alias = tunel.alias.clone();
+
+    // Desplegador del acordeón. Es el único sitio desde el que se abre el
+    // detalle: la fila entera no puede ser clicable sin dejar sordos a sus
+    // propios botones (véase «tests/capas.rs»).
+    if iconos::boton(
+        ui,
+        if desplegado {
+            Icono::PLEGAR
+        } else {
+            Icono::DESPLEGAR
+        },
+        tema.paleta.texto_secundario,
+        if desplegado {
+            "Plegar el detalle"
+        } else {
+            "Desplegar el detalle"
+        },
+    )
+    .clicked()
+    {
+        acciones.push(Accion::VerDetalle(id.clone()));
+    }
 
     // Todo lo que no sea arrancar, parar o editar vive en un desplegable. Con
     // cinco iconos por fila y quince filas, el cromo tapaba el contenido; la
@@ -421,81 +448,64 @@ fn acciones_de_fila(
 
     ui.add_space(tema.escala.xs);
 
-    // Las acciones llevan su palabra al lado del icono: en una lista de túneles
-    // el mismo cuadrado significa «baja este» o «deja de reintentar» según el
-    // estado, y eso no se adivina de un vistazo. La etiqueta es la corta; el
-    // matiz entero queda en el globo de ayuda.
+    // Acciones secundarias, solo cuando el estado las pide.
     match estado.estado {
-        Estado::Definido => {
-            if widgets::boton_de_fila(ui, tema, Icono::ARRANCAR, tema.paleta.exito, "Levantar")
-                .on_hover_text("Abrir la conexión y establecer este reenvío")
-                .clicked()
-            {
-                acciones.push(Accion::Levantar(id));
-            }
-        }
-        Estado::Fallido => {
-            if widgets::boton_de_fila(ui, tema, Icono::REINTENTAR, tema.paleta.error, "Reintentar")
-                .on_hover_text("Reintentar ahora")
-                .clicked()
-            {
-                acciones.push(Accion::Reintentar(id));
-            }
-        }
         Estado::Reintentando => {
-            if widgets::boton_de_fila(
-                ui,
-                tema,
-                Icono::PARAR,
-                tema.paleta.texto_secundario,
-                "Parar",
-            )
-            .on_hover_text("Dejar de intentarlo")
-            .clicked()
-            {
-                acciones.push(Accion::Bajar(id.clone()));
-            }
             if widgets::boton_de_fila(ui, tema, Icono::RAYO, tema.paleta.info, "Ahora")
                 .on_hover_text("Reintentar ya, sin esperar al siguiente intento")
                 .clicked()
             {
-                acciones.push(Accion::Reintentar(id));
+                acciones.push(Accion::Reintentar(id.clone()));
             }
         }
-        Estado::Degradado => {
+        Estado::Degradado
             if widgets::boton_de_fila(
                 ui,
                 tema,
-                Icono::PARAR,
-                tema.paleta.texto_secundario,
-                "Bajar",
+                Icono::REINTENTAR,
+                tema.paleta.aviso,
+                "Reparar",
             )
-            .on_hover_text("Cerrar este reenvío")
-            .clicked()
-            {
-                acciones.push(Accion::Bajar(id.clone()));
-            }
-            if widgets::boton_de_fila(ui, tema, Icono::REINTENTAR, tema.paleta.aviso, "Reparar")
-                .on_hover_text("Rehacer el reenvío sin cerrar la conexión")
-                .clicked()
-            {
-                acciones.push(Accion::Reintentar(id));
-            }
+            .on_hover_text("Rehacer el reenvío sin cerrar la conexión")
+            .clicked() =>
+        {
+            acciones.push(Accion::Reintentar(id.clone()));
         }
-        _ => {
-            if widgets::boton_de_fila(
-                ui,
-                tema,
-                Icono::PARAR,
-                tema.paleta.texto_secundario,
-                "Bajar",
-            )
-            .on_hover_text("Cerrar este reenvío")
-            .clicked()
-            {
-                acciones.push(Accion::Bajar(id));
-            }
-        }
+        _ => {}
+    }
+
+    // El interruptor del túnel. UN solo control, siempre en el mismo sitio, que
+    // alterna entre arrancar y parar según lo que el túnel esté haciendo.
+    //
+    // Antes había un botón distinto por estado, y en algunos ni siquiera
+    // aparecía el de parar: había que adivinar qué hacía el icono de turno. Un
+    // interruptor no se adivina, se lee.
+    let arriba = !matches!(estado.estado, Estado::Definido | Estado::Fallido);
+    let (icono, color, texto, ayuda) = if arriba {
+        (
+            Icono::PARAR,
+            tema.paleta.error,
+            "Parar",
+            "Cerrar este reenvío. Si es el último del host, se cierra también la conexión",
+        )
+    } else {
+        (
+            Icono::ARRANCAR,
+            tema.paleta.exito,
+            "Levantar",
+            "Abrir la conexión y establecer este reenvío",
+        )
+    };
+
+    if widgets::boton_de_fila(ui, tema, icono, color, texto)
+        .on_hover_text(ayuda)
+        .clicked()
+    {
+        acciones.push(if arriba {
+            Accion::Bajar(id)
+        } else {
+            Accion::Levantar(id)
+        });
     }
 }
 

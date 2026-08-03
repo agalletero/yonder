@@ -97,6 +97,13 @@ pub struct Preferencias {
     pub confirmar_al_bajar: bool,
     /// Mostrar la columna de estadísticas en la lista.
     pub mostrar_estadisticas: bool,
+    /// Escala de la interfaz. 1.0 es el tamaño base.
+    ///
+    /// Se aplica con el zoom de egui, que escala la letra **y** el espaciado a
+    /// la vez. Subir solo el tamaño de letra dejaría los textos grandes dentro
+    /// de cajas pensadas para los pequeños, y lo que se gana en legibilidad se
+    /// pierde en recortes.
+    pub escala_interfaz: f32,
 }
 
 impl Default for Preferencias {
@@ -112,6 +119,7 @@ impl Default for Preferencias {
             intervalo_salud: 30,
             confirmar_al_bajar: false,
             mostrar_estadisticas: true,
+            escala_interfaz: 1.0,
         }
     }
 }

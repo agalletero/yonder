@@ -724,6 +724,29 @@ fn ajustes(aplicacion: &mut Aplicacion, ui: &mut egui::Ui) -> bool {
             }
         });
     });
+    // Tamaño de la letra. Va con el zoom de egui, que escala texto y espaciado
+    // juntos: subir solo la letra dejaría los textos grandes dentro de cajas
+    // dimensionadas para los pequeños.
+    ui.horizontal(|ui| {
+        ui.label(tema::cuerpo(&tema, "Tamaño del texto"));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let actual = aplicacion.preferencias_mut().escala_interfaz;
+            for (factor, etiqueta) in [
+                (1.4_f32, "Muy grande"),
+                (1.2, "Grande"),
+                (1.0, "Normal"),
+                (0.9, "Pequeño"),
+            ] {
+                if ui
+                    .selectable_label((actual - factor).abs() < 0.01, etiqueta)
+                    .clicked()
+                {
+                    aplicacion.preferencias_mut().escala_interfaz = factor;
+                    cambiado = true;
+                }
+            }
+        });
+    });
     ui.horizontal(|ui| {
         ui.label(tema::cuerpo(&tema, "Densidad"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
