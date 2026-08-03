@@ -576,9 +576,46 @@ impl Aplicacion {
         });
     }
 
-    // El detalle ya no es un panel lateral: se despliega dentro de la lista,
-    // bajo la fila de su túnel (véase `lista::mostrar`). Un panel a la derecha
-    // le quitaba ancho a todas las filas para enseñar los datos de una sola.
+    /// El detalle, en una ventana flotante con cierre explícito.
+    ///
+    /// No es un panel lateral —le quitaba ancho a todas las filas para enseñar
+    /// los datos de una sola— ni un desplegable en línea, que empujaba los
+    /// túneles de abajo cada vez que se consultaba uno. Flota sobre la lista,
+    /// se puede mover y se queda hasta que se cierra: mientras se compara un
+    /// dato con otro, no desaparece por pasar el ratón a otro sitio.
+    fn ventana_detalle(&mut self, contexto: &egui::Context) {
+        let Some(id) = self.detalle.clone() else {
+            return;
+        };
+        let tema = self.tema;
+        let titulo = self
+            .instantanea
+            .tuneles
+            .iter()
+            .find(|t| t.id() == id)
+            .map(|t| t.alias.clone())
+            .unwrap_or_else(|| id.clone());
+
+        let mut abierta = true;
+        egui::Window::new(titulo)
+            .id(egui::Id::new("ventana_detalle"))
+            .open(&mut abierta)
+            .frame(tema.marco_modal())
+            .collapsible(false)
+            .resizable(true)
+            .default_width(520.0)
+            .default_pos(contexto.screen_rect().center() - egui::vec2(260.0, 240.0))
+            .show(contexto, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(520.0)
+                    .show(ui, |ui| {
+                        lista::panel_detalle(self, ui, &id);
+                    });
+            });
+        if !abierta {
+            self.detalle = None;
+        }
+    }
 
     // --- Preferencias ------------------------------------------------------
 
@@ -631,6 +668,7 @@ impl eframe::App for Aplicacion {
         self.refrescar(contexto);
         self.barra_superior(contexto);
         self.barra_estado(contexto);
+        self.ventana_detalle(contexto);
 
         let tema = self.tema;
         egui::CentralPanel::default()

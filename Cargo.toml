@@ -1,6 +1,6 @@
 [package]
 name = "yonder"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.82"
 description = "Gestor gráfico de túneles SSH para Linux — orquestador sobre OpenSSH"

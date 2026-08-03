@@ -72,27 +72,6 @@ pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: &[Tunel
                 let repetido = alias_anterior == Some(tunel.alias.as_str());
                 fila(aplicacion, ui, tunel, repetido, &mut acciones);
 
-                // El detalle se despliega aquí mismo, bajo su fila, y empuja
-                // hacia abajo los túneles siguientes. Antes era un panel a la
-                // derecha: robaba ancho a todas las filas para enseñar los datos
-                // de una sola, y obligaba a mirar a otro sitio para leer sobre
-                // lo que se acababa de pulsar.
-                let id = tunel.id();
-                if aplicacion.detalle.as_deref() == Some(id.as_str()) {
-                    let marco = egui::Frame::new()
-                        .fill(if tema.paleta.oscuro {
-                            tema.paleta.fondo
-                        } else {
-                            tema.paleta.hover
-                        })
-                        .stroke(egui::Stroke::new(1.0_f32, tema.paleta.acento))
-                        .corner_radius(egui::CornerRadius::same(tema.radios.medio))
-                        .inner_margin(tema.margen(tema.escala.m));
-                    marco.show(ui, |ui| {
-                        panel_detalle(aplicacion, ui, &id);
-                    });
-                }
-
                 alias_anterior = Some(&tunel.alias);
             }
             ui.add_space(tema.escala.l);
@@ -606,26 +585,7 @@ pub fn panel_detalle(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, id: &str) {
         .unwrap_or_else(|| EstadoTunel::nuevo(id));
     let host = aplicacion.host(&tunel.alias).cloned();
 
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(&tunel.alias)
-                .size(tema.tipografia.cabecera)
-                .color(tema.paleta.texto),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if iconos::boton(
-                ui,
-                Icono::CERRAR,
-                tema.paleta.texto_tenue,
-                "Cerrar el detalle",
-            )
-            .clicked()
-            {
-                aplicacion.detalle = None;
-            }
-        });
-    });
-
+    // Ni título ni botón de cerrar: los pone el marco de la ventana.
     ui.add_space(tema.escala.s);
     ui.horizontal(|ui| {
         widgets::etiqueta_estado(ui, &tema, estado.estado);

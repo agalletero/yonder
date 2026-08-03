@@ -380,13 +380,31 @@ pub fn cabecera_seccion(ui: &mut egui::Ui, tema: &Tema, texto: &str) {
 }
 
 /// Fila de una lista de propiedades: etiqueta a la izquierda, valor a la derecha.
+/// Ancho máximo de una lista de propiedades.
+///
+/// El dato tiene que quedar cerca de su nombre. Empujarlo al borde derecho del
+/// contenedor funcionaba cuando el detalle era un panel estrecho, pero al ganar
+/// ancho dejó «Puerto» y «229» separados por media pantalla: hay que recorrerla
+/// con la vista para saber qué valor es de quién.
+const ANCHO_PROPIEDADES: f32 = 400.0;
+
+/// Separación entre el nombre y su valor.
+const HUECO_PROPIEDAD: f32 = 24.0;
+
 pub fn propiedad(ui: &mut egui::Ui, tema: &Tema, etiqueta: &str, valor: &str) {
-    ui.horizontal(|ui| {
-        ui.label(super::tema::tenue(tema, etiqueta));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(super::tema::secundario(tema, valor));
-        });
-    });
+    ui.allocate_ui(
+        egui::vec2(ANCHO_PROPIEDADES.min(ui.available_width()), 0.0),
+        |ui| {
+            // Sin hueco vertical entre filas: cada una es una línea de una
+            // tabla, no un párrafo suelto.
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = HUECO_PROPIEDAD;
+                ui.label(super::tema::tenue(tema, etiqueta));
+                ui.label(super::tema::secundario(tema, valor));
+            });
+        },
+    );
 }
 
 /// Texto de una duración en lenguaje natural y corto.
