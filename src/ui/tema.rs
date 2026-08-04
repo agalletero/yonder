@@ -258,24 +258,6 @@ impl Tema {
         }
     }
 
-    /// Elevación de una tarjeta.
-    ///
-    /// En claro es una sombra de dos capas —una ambiental difusa y una directa
-    /// corta—; en oscuro no hay sombra porque no se vería: la elevación la da
-    /// la superficie más clara.
-    pub fn sombra_tarjeta(&self) -> Shadow {
-        if self.paleta.oscuro {
-            Shadow::NONE
-        } else {
-            Shadow {
-                offset: [0, 1],
-                blur: 3,
-                spread: 0,
-                color: Color32::from_black_alpha(18),
-            }
-        }
-    }
-
     /// Elevación de un modal: más alta, más difusa.
     pub fn sombra_modal(&self) -> Shadow {
         if self.paleta.oscuro {
@@ -293,16 +275,6 @@ impl Tema {
                 color: Color32::from_black_alpha(38),
             }
         }
-    }
-
-    /// Marco de tarjeta: superficie, borde de 1 px y radio grande.
-    pub fn marco_tarjeta(&self) -> egui::Frame {
-        egui::Frame::new()
-            .fill(self.paleta.superficie)
-            .stroke(Stroke::new(1.0_f32, self.paleta.borde))
-            .corner_radius(CornerRadius::same(self.radios.grande))
-            .inner_margin(self.margen(self.escala.m))
-            .shadow(self.sombra_tarjeta())
     }
 
     /// Marco de panel: superficie sin borde ni sombra.
@@ -331,6 +303,60 @@ impl Tema {
     }
 
     /// Aplica los tokens al estilo global de egui.
+    /// Registra las fuentes empotradas. Se llama una vez, al arrancar.
+    ///
+    /// Hace falta de verdad, no es cosmética: la fuente que trae egui por
+    /// defecto —Ubuntu-Light— **no tiene el glifo U+2192 «→»**, y la lista lo
+    /// usa en cada reenvío. Donde debía ir la flecha salía un cuadrado.
+    ///
+    /// Se empotran con `include_bytes!` en lugar de pedírselas al sistema: así
+    /// la aplicación se ve igual en cualquier máquina y no depende de que
+    /// fontconfig encuentre nada. La licencia OFL viaja al lado, en
+    /// `assets/fuentes/LICENCIA`, igual que se hace con los iconos.
+    ///
+    /// Las de egui se conservan **detrás** de las nuestras: cubren lo que IBM
+    /// Plex no traiga —emoji, alfabetos que no usamos— en vez de dejar otro
+    /// cuadrado.
+    pub fn registrar_fuentes(contexto: &egui::Context) {
+        use egui::{FontData, FontDefinitions, FontFamily};
+        use std::sync::Arc;
+
+        let mut fuentes = FontDefinitions::default();
+
+        for (nombre, bytes) in [
+            (
+                "plex-sans",
+                &include_bytes!("../../assets/fuentes/IBMPlexSans-Regular.ttf")[..],
+            ),
+            (
+                "plex-sans-medio",
+                &include_bytes!("../../assets/fuentes/IBMPlexSans-Medium.ttf")[..],
+            ),
+            (
+                "plex-mono",
+                &include_bytes!("../../assets/fuentes/IBMPlexMono-Regular.ttf")[..],
+            ),
+        ] {
+            fuentes
+                .font_data
+                .insert(nombre.to_string(), Arc::new(FontData::from_static(bytes)));
+        }
+
+        if let Some(familia) = fuentes.families.get_mut(&FontFamily::Proportional) {
+            familia.insert(0, "plex-sans".to_string());
+        }
+        if let Some(familia) = fuentes.families.get_mut(&FontFamily::Monospace) {
+            familia.insert(0, "plex-mono".to_string());
+        }
+        // Familia aparte para lo que deba ir en peso medio.
+        fuentes.families.insert(
+            FontFamily::Name("medio".into()),
+            vec!["plex-sans-medio".to_string(), "plex-sans".to_string()],
+        );
+
+        contexto.set_fonts(fuentes);
+    }
+
     pub fn aplicar(&self, contexto: &egui::Context) {
         let paleta = self.paleta;
         let mut estilo = (*contexto.style()).clone();
@@ -516,24 +542,6 @@ mod pruebas {
         assert!(claridad(OSCURA.superficie) > claridad(OSCURA.fondo));
         assert!(claridad(OSCURA.elevado) > claridad(OSCURA.superficie));
         assert!(claridad(OSCURA.hover) > claridad(OSCURA.elevado));
-    }
-
-    #[test]
-    fn en_oscuro_no_hay_sombra_en_las_tarjetas() {
-        // Sobre fondo oscuro una sombra no se ve: la elevación es la superficie.
-        let tema = Tema {
-            paleta: OSCURA,
-            escala: Escala::con_densidad(Densidad::Comoda),
-            radios: RADIOS,
-            tipografia: TIPOGRAFIA,
-        };
-        assert_eq!(tema.sombra_tarjeta(), Shadow::NONE);
-
-        let claro = Tema {
-            paleta: CLARA,
-            ..tema
-        };
-        assert_ne!(claro.sombra_tarjeta(), Shadow::NONE);
     }
 
     #[test]

@@ -1,9 +1,14 @@
 //! Lista de túneles y panel de detalle.
 //!
-//! Cada fila es una tarjeta con una barra de acento lateral del color de su
-//! estado. La identidad va en la barra y en el icono, no en un fondo saturado:
-//! el color es señal, no relleno. Con quince túneles en pantalla, un fondo de
-//! color por fila sería ilegible.
+//! La lista es una tabla, no una pila de tarjetas: filas pegadas, sin borde ni
+//! esquinas propias, con el fondo alternando entre dos tonos vecinos. Con la
+//! fila ancha, ese contraste mínimo es lo que permite seguirla con la vista de
+//! un extremo al otro sin cambiar de renglón por el camino, y no gasta los ocho
+//! o diez píxeles por fila que costaba el margen entre tarjetas.
+//!
+//! El estado va en el icono y en la barra de acento lateral, nunca en el fondo:
+//! con quince túneles en pantalla, un fondo de color por estado sería ilegible
+//! y además chocaría con la alternancia.
 
 use eframe::egui::{self, Sense};
 
@@ -63,14 +68,21 @@ pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: &[Tunel
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = tema.escala.s;
+            ui.spacing_mut().item_spacing.y = 0.0;
             let mut alias_anterior: Option<&str> = None;
-            for tunel in visibles {
+            for (indice, tunel) in visibles.iter().enumerate() {
                 // Un host con varios reenvíos ocupa varias filas seguidas.
                 // Repetir el alias y el destino a tamaño completo en cada una
                 // solo añade ruido: en las repeticiones se bajan de color.
                 let repetido = alias_anterior == Some(tunel.alias.as_str());
-                fila(aplicacion, ui, tunel, repetido, &mut acciones);
+                fila(
+                    aplicacion,
+                    ui,
+                    tunel,
+                    repetido,
+                    indice % 2 == 0,
+                    &mut acciones,
+                );
 
                 alias_anterior = Some(&tunel.alias);
             }
@@ -157,6 +169,7 @@ fn fila(
     ui: &mut egui::Ui,
     tunel: &Tunel,
     repetido: bool,
+    impar: bool,
     acciones: &mut Vec<Accion>,
 ) {
     let tema = *aplicacion.tema();
@@ -172,26 +185,33 @@ fn fila(
     let seleccionada = aplicacion.detalle.as_deref() == Some(id.as_str());
     let marcada = aplicacion.seleccion.contains(&id);
 
-    let marco = tema
-        .marco_tarjeta()
-        .fill(if seleccionada {
-            if tema.paleta.oscuro {
-                tema.paleta.elevado
-            } else {
-                tema.paleta.acento_suave
-            }
+    // Fila de lista, no tarjeta.
+    //
+    // Las tarjetas gastaban entre ocho y diez píxeles por fila en margen y
+    // borde que no comunican nada. Aquí las filas van pegadas y el fondo
+    // alterna entre dos tonos, como en una hoja de cálculo: con la fila ancha,
+    // el color de fondo es lo que permite seguirla con la vista de un extremo
+    // al otro sin cambiar de renglón por el camino.
+    //
+    // Las esquinas redondeadas y el borde suben al contenedor de la lista; una
+    // fila interior con esquinas rompe la continuidad de la columna.
+    let fondo = if seleccionada {
+        if tema.paleta.oscuro {
+            tema.paleta.elevado
         } else {
-            tema.paleta.superficie
-        })
-        .stroke(egui::Stroke::new(
-            1.0_f32,
-            if seleccionada {
-                tema.paleta.acento
-            } else {
-                tema.paleta.borde
-            },
-        ))
-        .inner_margin(tema.margen_simetrico(tema.escala.m, tema.escala.m));
+            tema.paleta.acento_suave
+        }
+    } else if impar {
+        tema.paleta.superficie
+    } else if tema.paleta.oscuro {
+        tema.paleta.elevado
+    } else {
+        tema.paleta.hover
+    };
+
+    let marco = egui::Frame::new()
+        .fill(fondo)
+        .inner_margin(tema.margen_simetrico(tema.escala.s, tema.escala.xs));
 
     let interior = marco.show(ui, |ui| {
         ui.horizontal(|ui| {

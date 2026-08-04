@@ -118,6 +118,7 @@ pub fn ejecutar() -> anyhow::Result<()> {
         Box::new(move |contexto| {
             // Sin esto los SVG no se rasterizan y solo se verían huecos.
             egui_extras::install_image_loaders(&contexto.egui_ctx);
+            tema::Tema::registrar_fuentes(&contexto.egui_ctx);
 
             let repintar = contexto.egui_ctx.clone();
             supervisor.al_cambiar(move || repintar.request_repaint());
