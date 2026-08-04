@@ -32,6 +32,8 @@ pub struct FilaReenvio {
     /// Ruta de la comprobación HTTP. Se guarda aparte para que no se pierda al
     /// cambiar de tipo de sonda y volver.
     pub ruta_http: String,
+    /// Nombre corto que se leerá en la lista. Vacío = derivado del destino.
+    pub nombre: String,
 }
 
 impl FilaReenvio {
@@ -50,6 +52,7 @@ impl FilaReenvio {
                 .as_ref()
                 .map(|d| d.puerto.to_string())
                 .unwrap_or_default(),
+            nombre: reenvio.nombre.clone().unwrap_or_default(),
             ruta_http: match &reenvio.salud {
                 Salud::Http { ruta } => ruta.clone(),
                 _ => "/".to_string(),
@@ -67,6 +70,7 @@ impl FilaReenvio {
             puerto_destino: String::new(),
             salud: Salud::Escucha,
             ruta_http: "/".to_string(),
+            nombre: String::new(),
         }
     }
 
@@ -108,7 +112,9 @@ impl FilaReenvio {
                 // Un proxy SOCKS no habla HTTP ni saluda: sondearlo con esas
                 // comprobaciones daría un falso zombi permanente.
                 salud: Salud::Escucha,
-            });
+                nombre: None,
+            }
+            .con_nombre(Some(self.nombre.clone())));
         }
 
         let host = self.host_destino.trim();
@@ -135,7 +141,9 @@ impl FilaReenvio {
                 // nada que sondear.
                 Salud::Escucha
             },
-        })
+            nombre: None,
+        }
+        .con_nombre(Some(self.nombre.clone())))
     }
 }
 
@@ -480,12 +488,21 @@ fn fila_reenvio(
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = tema.escala.s;
                 let columnas = if fila.tipo == TipoReenvio::Dinamico {
-                    2.0
+                    3.0
                 } else {
-                    4.0
+                    5.0
                 };
                 let ancho = (ui.available_width() - tema.escala.s * (columnas - 1.0)) / columnas;
 
+                ui.allocate_ui(egui::vec2(ancho, 0.0), |ui| {
+                    widgets::campo(
+                        ui,
+                        tema,
+                        "Nombre",
+                        &mut fila.nombre,
+                        Some("lo que se lee en la lista"),
+                    );
+                });
                 ui.allocate_ui(egui::vec2(ancho, 0.0), |ui| {
                     widgets::campo(
                         ui,

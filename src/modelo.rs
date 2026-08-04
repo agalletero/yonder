@@ -291,6 +291,29 @@ impl Salud {
     }
 }
 
+/// Nombre corto del servicio que suele escuchar en un puerto.
+///
+/// Solo los que aparecen de verdad en los túneles de trabajo. No pretende ser
+/// la lista de IANA: un nombre inventado para un puerto poco común confunde
+/// más que un «puerto-9418» honesto.
+fn servicio_de(puerto: u16) -> Option<&'static str> {
+    Some(match puerto {
+        22 => "ssh",
+        80 => "http",
+        443 => "https",
+        1521 => "oracle",
+        3000 | 3001 => "grafana",
+        3306 => "mysql",
+        5432 => "postgres",
+        6379 => "redis",
+        8080 | 8081 => "web",
+        9090 => "prometheus",
+        9093 => "alertmanager",
+        27017 => "mongo",
+        _ => return None,
+    })
+}
+
 /// Un reenvío concreto.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Reenvio {
@@ -300,6 +323,15 @@ pub struct Reenvio {
     pub destino: Option<Extremo>,
     /// Cómo comprobar que está vivo de verdad.
     pub salud: Salud,
+    /// Nombre corto elegido por el usuario. Es lo que manda en la lista.
+    ///
+    /// Sin él, cada fila tenía que encabezarse con el alias del host, que es el
+    /// mismo para todos sus reenvíos: siete filas cuyo elemento más prominente
+    /// era la única palabra que no distinguía ninguna.
+    ///
+    /// Se persiste como comentario `# nombre:` delante de su directiva, igual
+    /// que `# salud:`, para no salirse de la gramática de `ssh_config`.
+    pub nombre: Option<String>,
 }
 
 impl Reenvio {
@@ -309,6 +341,7 @@ impl Reenvio {
             escucha,
             destino: Some(destino),
             salud: Salud::default(),
+            nombre: None,
         }
     }
 
@@ -318,6 +351,7 @@ impl Reenvio {
             escucha,
             destino: None,
             salud: Salud::default(),
+            nombre: None,
         }
     }
 
@@ -325,6 +359,36 @@ impl Reenvio {
     pub fn con_salud(mut self, salud: Salud) -> Self {
         self.salud = salud;
         self
+    }
+
+    /// El mismo reenvío con nombre propio.
+    pub fn con_nombre(mut self, nombre: Option<String>) -> Self {
+        self.nombre = nombre
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty());
+        self
+    }
+
+    /// Marca con la que el nombre se persiste en `ssh_config`.
+    pub const MARCA_NOMBRE: &'static str = "nombre:";
+
+    /// Nombre que se muestra en la lista.
+    ///
+    /// El elegido por el usuario si lo hay; si no, uno derivado del **destino**,
+    /// nunca del alias del host: el alias ya encabeza el grupo y repetirlo en
+    /// cada fila es lo que hacía la lista ilegible.
+    pub fn nombre_visible(&self) -> String {
+        if let Some(nombre) = &self.nombre {
+            return nombre.clone();
+        }
+        match (&self.tipo, &self.destino) {
+            (TipoReenvio::Dinamico, _) => format!("socks-{}", self.escucha.puerto),
+            (_, Some(destino)) => match servicio_de(destino.puerto) {
+                Some(servicio) => format!("{servicio}-{}", destino.puerto),
+                None => format!("puerto-{}", destino.puerto),
+            },
+            (_, None) => format!("puerto-{}", self.escucha.puerto),
+        }
     }
 
     /// Analiza el valor de una directiva `*Forward` de `ssh_config`.
@@ -340,12 +404,14 @@ impl Reenvio {
                 escucha: Extremo::analizar(escucha)?,
                 destino: None,
                 salud: Salud::default(),
+                nombre: None,
             }),
             (TipoReenvio::Local | TipoReenvio::Remoto, [escucha, destino]) => Ok(Reenvio {
                 tipo,
                 escucha: Extremo::analizar(escucha)?,
                 destino: Some(Extremo::analizar(destino)?),
                 salud: Salud::default(),
+                nombre: None,
             }),
             // Forma compacta de una sola palabra: 3000:localhost:3000
             (TipoReenvio::Local | TipoReenvio::Remoto, [unico]) => {
@@ -356,12 +422,14 @@ impl Reenvio {
                         escucha: Extremo::analizar(escucha)?,
                         destino: Some(Extremo::nuevo(*host, analizar_puerto(puerto)?)),
                         salud: Salud::default(),
+                        nombre: None,
                     }),
                     [enlace, escucha, host, puerto] => Ok(Reenvio {
                         tipo,
                         escucha: Extremo::nuevo(*enlace, analizar_puerto(escucha)?),
                         destino: Some(Extremo::nuevo(*host, analizar_puerto(puerto)?)),
                         salud: Salud::default(),
+                        nombre: None,
                     }),
                     _ => Err(Error::DefinicionInvalida(format!(
                         "«{}» no es un valor válido para {}",

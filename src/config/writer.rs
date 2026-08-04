@@ -340,6 +340,11 @@ fn es_marca_de_salud(linea: &Linea) -> bool {
     linea.marca_de_salud().is_some()
 }
 
+/// `true` si la línea es un marcador `# nombre: …`.
+fn es_marca_de_nombre(linea: &Linea) -> bool {
+    linea.marca_de_nombre().is_some()
+}
+
 /// Reescribe los reenvíos de un tipo junto con sus marcas de salud.
 ///
 /// Va aparte de `fijar_multiple` porque un reenvío no es una línea sino,
@@ -362,12 +367,19 @@ fn fijar_reenvios(bloque: &mut Bloque, clave: &str, reenvios: &[&Reenvio]) {
         .copied()
         .unwrap_or_else(|| punto_de_insercion(bloque));
 
-    // Se borra cada directiva y, si la precede, su marca de salud.
+    // Se borra cada directiva y las marcas que la preceden, que pueden ser dos:
+    // el nombre y la salud. Se retrocede mientras haya marcas para no dejar
+    // huérfana la de más arriba.
     let mut a_borrar: Vec<usize> = Vec::new();
     for &posicion in &posiciones {
         a_borrar.push(posicion);
-        if posicion > 0 && es_marca_de_salud(&bloque.cuerpo[posicion - 1]) {
-            a_borrar.push(posicion - 1);
+        let mut anterior = posicion;
+        while anterior > 0
+            && (es_marca_de_salud(&bloque.cuerpo[anterior - 1])
+                || es_marca_de_nombre(&bloque.cuerpo[anterior - 1]))
+        {
+            anterior -= 1;
+            a_borrar.push(anterior);
         }
     }
     a_borrar.sort_unstable();
@@ -383,6 +395,15 @@ fn fijar_reenvios(bloque: &mut Bloque, clave: &str, reenvios: &[&Reenvio]) {
         .min(bloque.cuerpo.len());
 
     for reenvio in reenvios {
+        // El nombre va el primero: es lo que identifica al reenvío, y leerlo
+        // antes que su comprobación es el orden natural.
+        if let Some(nombre) = &reenvio.nombre {
+            bloque.cuerpo.insert(
+                destino,
+                Linea::analizar(&format!("    # {} {}", Reenvio::MARCA_NOMBRE, nombre)),
+            );
+            destino += 1;
+        }
         if reenvio.salud != Salud::Escucha {
             bloque.cuerpo.insert(
                 destino,
@@ -623,6 +644,64 @@ Host preprod
         let texto = doc.a_texto();
         assert_eq!(texto.matches("HostName").count(), 1);
         assert!(texto.contains("HostName tres"));
+    }
+
+    #[test]
+    fn el_nombre_va_y_vuelve_pegado_a_su_reenvio() {
+        let mut doc = documento("");
+        let mut host = Host::nuevo("salto");
+        host.hostname = Some("192.0.2.10".into());
+        host.reenvios.push(
+            Reenvio::local(
+                Extremo::solo_puerto(1522),
+                Extremo::nuevo("192.0.2.30", 1521),
+            )
+            .con_nombre(Some("oracle-preprod".into())),
+        );
+        host.reenvios.push(
+            Reenvio::local(
+                Extremo::solo_puerto(3000),
+                Extremo::nuevo("192.0.2.50", 3000),
+            )
+            .con_salud(Salud::Http {
+                ruta: "/api/health".into(),
+            })
+            .con_nombre(Some("api-health".into())),
+        );
+        // Sin nombre: no debe escribirse marca ninguna.
+        host.reenvios.push(Reenvio::local(
+            Extremo::solo_puerto(2222),
+            Extremo::nuevo("192.0.2.40", 22),
+        ));
+        sincronizar_host(&mut doc, &host).unwrap();
+
+        let texto = doc.a_texto();
+        assert!(texto.contains("    # nombre: oracle-preprod\n    LocalForward 1522"));
+        // Con las dos marcas, el nombre va encima de la salud.
+        assert!(texto.contains(
+            "    # nombre: api-health\n    # salud: http:/api/health\n    LocalForward 3000"
+        ));
+        assert!(!texto.contains("nombre: puerto"));
+
+        let vuelta = doc.bloque("salto").unwrap().a_host(Origen::Propio).unwrap();
+        assert_eq!(vuelta.reenvios[0].nombre.as_deref(), Some("oracle-preprod"));
+        assert_eq!(vuelta.reenvios[1].nombre.as_deref(), Some("api-health"));
+        assert_eq!(vuelta.reenvios[2].nombre, None);
+    }
+
+    #[test]
+    fn sin_nombre_propio_se_deriva_del_destino_y_nunca_del_alias() {
+        let oracle = Reenvio::local(Extremo::solo_puerto(1522), Extremo::nuevo("interno", 1521));
+        assert_eq!(oracle.nombre_visible(), "oracle-1521");
+        let raro = Reenvio::local(Extremo::solo_puerto(9418), Extremo::nuevo("interno", 9418));
+        assert_eq!(raro.nombre_visible(), "puerto-9418");
+        // El nombre elegido manda sobre el derivado.
+        assert_eq!(
+            oracle
+                .con_nombre(Some("  base-preprod  ".into()))
+                .nombre_visible(),
+            "base-preprod"
+        );
     }
 
     #[test]

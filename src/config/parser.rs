@@ -106,6 +106,17 @@ impl Linea {
             .strip_prefix(Salud::MARCA)
             .map(str::trim)
     }
+
+    /// Nombre del túnel si la línea es un marcador `# nombre: …`.
+    ///
+    /// Mismo mecanismo que `# salud:` y por la misma razón: `ssh` lo ignora por
+    /// ser un comentario, de modo que la definición sigue viviendo en un solo
+    /// sitio y `ssh <alias>` desde la terminal funciona igual.
+    pub fn marca_de_nombre(&self) -> Option<&str> {
+        self.texto_comentario()?
+            .strip_prefix(Reenvio::MARCA_NOMBRE)
+            .map(str::trim)
+    }
 }
 
 /// Separa `Clave valor`, `Clave=valor` o `Clave = valor`.
@@ -250,8 +261,13 @@ impl Bloque {
     fn reenvios(&self, alias: &str) -> Vec<Reenvio> {
         let mut reenvios = Vec::new();
         let mut salud_pendiente: Option<Salud> = None;
+        let mut nombre_pendiente: Option<String> = None;
 
         for linea in &self.cuerpo {
+            if let Some(nombre) = linea.marca_de_nombre() {
+                nombre_pendiente = Some(nombre.to_string()).filter(|n| !n.is_empty());
+                continue;
+            }
             if let Some(especificacion) = linea.marca_de_salud() {
                 match Salud::analizar(especificacion) {
                     Ok(salud) => salud_pendiente = Some(salud),
@@ -278,12 +294,14 @@ impl Bloque {
             match Reenvio::analizar(tipo, valor) {
                 Ok(reenvio) => {
                     let salud = salud_pendiente.take().unwrap_or_default();
-                    reenvios.push(reenvio.con_salud(salud));
+                    let nombre = nombre_pendiente.take();
+                    reenvios.push(reenvio.con_salud(salud).con_nombre(nombre));
                 }
                 Err(e) => {
-                    // Una marca de salud huérfana no debe heredarla el reenvío
+                    // Una marca huérfana no debe heredarla el reenvío
                     // siguiente, que no tiene nada que ver con ella.
                     salud_pendiente = None;
+                    nombre_pendiente = None;
                     tracing::warn!(
                         alias = %alias,
                         valor = %valor,

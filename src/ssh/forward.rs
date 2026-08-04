@@ -117,6 +117,7 @@ mod pruebas {
             escucha: Extremo::solo_puerto(9000),
             destino: Some(Extremo::nuevo("localhost", 22)),
             salud: crate::modelo::Salud::Escucha,
+            nombre: None,
         };
         // El puerto 9000 no escucha aquí y aun así debe darse por bueno: escucha
         // en la otra punta.
