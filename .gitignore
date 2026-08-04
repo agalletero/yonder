@@ -2,8 +2,9 @@
 /dist
 paquete/
 
-# Documento de trabajo interno: no se publica.
+# Documentos de trabajo internos: no se publican.
 /gestor-tuneles-ssh-objetivos.md
+/mejoras.md
 
 # Restos de la prueba de extremo a extremo
 /pruebas/trabajo/
