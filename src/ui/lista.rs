@@ -265,6 +265,20 @@ fn fila(
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = tema.escala.s;
+                // La altura se fija ANTES de añadir nada.
+                //
+                // En una fila horizontal, egui centra cada elemento respecto a
+                // la altura que la fila tiene en ese instante. La casilla y el
+                // punto de estado entran los primeros, cuando la fila todavía
+                // no sabe que va a crecer con el texto, así que se colocaban
+                // pensando en una fila más baja y quedaban pegados arriba.
+                // Declarando la altura de entrada, todos se centran contra la
+                // misma referencia.
+                //
+                // De paso la fila pasa a tener altura constante, que es lo que
+                // hace que la lista se lea como una tabla y no como una pila de
+                // cosas de tamaños distintos.
+                ui.set_min_height(altura_de_fila(&tema));
 
                 let mut copia = marcada;
                 if widgets::casilla(ui, &tema, &mut copia).clicked() {
@@ -320,6 +334,15 @@ fn fila(
                 });
             });
         });
+}
+
+/// Altura de una fila de la lista.
+///
+/// Sale del tamaño del cuerpo de texto y no de una constante, para que siga a
+/// la escala de la interfaz: con el texto al 150 % una fila de 36 px recortaría
+/// las letras.
+fn altura_de_fila(tema: &Tema) -> f32 {
+    (tema.tipografia.cuerpo * 1.5).max(tema.escala.l + tema.escala.xs)
 }
 
 /// Chips de metadatos del host: saltos, llave física, origen externo.

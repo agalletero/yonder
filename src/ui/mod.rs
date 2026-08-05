@@ -406,10 +406,19 @@ impl Aplicacion {
                     );
 
                     ui.add_space(tema.escala.l);
-                    self.campo_busqueda(ui);
 
+                    // Las acciones reservan su ancho ANTES que la búsqueda.
+                    //
+                    // Al revés, la búsqueda se quedaba con lo que pedía y los
+                    // botones se pintaban después encima: al subir el tamaño de
+                    // la interfaz, «Nuevo túnel» acababa sobre el campo. Es el
+                    // mismo fallo que tenía la fila de la lista, y se arregla
+                    // igual — quien no reserva primero, se solapa.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         self.acciones_globales(ui);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            self.campo_busqueda(ui);
+                        });
                     });
                 });
             });
@@ -483,9 +492,16 @@ impl Aplicacion {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = tema.escala.xs;
                     iconos::mostrar(ui, Icono::BUSCAR, iconos::PEQUENO, tema.paleta.texto_tenue);
+                    // El campo cede cuando la barra se queda corta.
+                    //
+                    // Con 200 px fijos, al subir el tamaño de la interfaz la
+                    // barra dejaba de caber y «Nuevo túnel» se pintaba encima
+                    // de la búsqueda. Aquí pide lo que le sobra al resto, con un
+                    // suelo para que no se reduzca a un cuadradito inservible.
+                    let ancho = (ui.available_width() - tema.escala.xl).clamp(80.0, 240.0);
                     ui.add(
                         egui::TextEdit::singleline(&mut self.filtro)
-                            .desired_width(200.0)
+                            .desired_width(ancho)
                             .frame(false)
                             .hint_text(
                                 egui::RichText::new("Buscar túnel, host o nota")
@@ -597,19 +613,21 @@ impl Aplicacion {
                     self.contador(ui, Estado::Fallido, recuento(Estado::Fallido));
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(tema::tenue(
-                            &tema,
+                        // Los tres textos se recortan en vez de crecer sin
+                        // límite. Al subir el tamaño de la interfaz dejaban de
+                        // caber y se pintaban encima de los contadores, que son
+                        // lo que de verdad se mira de esta barra.
+                        let tenue =
+                            |texto: String| egui::Label::new(tema::tenue(&tema, texto)).truncate();
+                        ui.add(tenue(
                             yonder::rutas::config_tuneles()
                                 .map(|r| yonder::rutas::abreviar(&r))
                                 .unwrap_or_default(),
                         ));
                         ui.label(tema::tenue(&tema, "·"));
-                        ui.label(tema::tenue(&tema, &self.version_ssh));
+                        ui.add(tenue(self.version_ssh.clone()));
                         ui.label(tema::tenue(&tema, "·"));
-                        ui.label(tema::tenue(
-                            &tema,
-                            format!("{} túneles", self.instantanea.tuneles.len()),
-                        ));
+                        ui.add(tenue(format!("{} túneles", self.instantanea.tuneles.len())));
                     });
                 });
             });
