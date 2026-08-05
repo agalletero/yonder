@@ -6,6 +6,13 @@ paquete/
 /gestor-tuneles-ssh-objetivos.md
 /mejoras.md
 
+# Borrador del workflow de macOS.
+#
+# No está en .github/workflows/ a propósito: el código todavía no es portable
+# —oo7 es D-Bus, la detección de puertos lee /proc y el servicio es systemd—,
+# así que activarlo solo produciría una CI en rojo en cada etiqueta.
+/macos.yml
+
 # Restos de la prueba de extremo a extremo
 /pruebas/trabajo/
 /pruebas/hogar-falso/
