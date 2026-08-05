@@ -304,7 +304,7 @@ fn fila(
         tema.paleta.hover
     };
 
-    egui::Frame::new()
+    let interior = egui::Frame::new()
         .fill(fondo)
         .inner_margin(tema.margen_simetrico(tema.escala.s, tema.escala.xs))
         .show(ui, |ui| {
@@ -355,10 +355,22 @@ fn fila(
                                     tema.paleta.texto_secundario
                                 }),
                         );
-                        // Cuando el host tiene un solo reenvío no hay cabecera,
-                        // así que el alias se dice aquí y solo aquí.
+                        // Sin cabecera de grupo, el alias y el destino se dicen
+                        // aquí y solo aquí.
+                        //
+                        // El destino importa más de lo que parece: no se mira
+                        // para recordar qué se dio de alta, sino para comprobar
+                        // contra qué máquina está abierto el túnel cuando algo
+                        // no responde y hay que decidir si falla el salto o el
+                        // destino. Al partir la pantalla, un host con varios
+                        // reenvíos del que solo uno esté en pie baja sin
+                        // cabecera —abajo es un grupo de uno— y perdía ese dato
+                        // justo en el momento de necesitarlo.
                         if solo {
                             ui.label(tema::tenue(&tema, &grupo.alias));
+                            if let Some(host) = &grupo.host {
+                                ui.label(tema::tenue(&tema, host.destino_completo()));
+                            }
                         }
                         ui.label(tema::mono(&tema, tunel.reenvio.extremos_breves()));
                         // El motivo, en dos palabras. El texto completo va en
@@ -379,6 +391,45 @@ fn fila(
                 });
             });
         });
+
+    // Franja lateral que se apaga: avisa de lo que ha cambiado sin que
+    // estuvieras mirando.
+    marca_de_cambio(ui, &tema, interior.response.rect, estado);
+}
+
+/// Cuánto dura la marca de «esto ha cambiado hace poco».
+///
+/// Lo bastante para verla al volver a la ventana, lo bastante poco para que no
+/// se quede de adorno.
+const DURACION_MARCA_CAMBIO: f32 = 8.0;
+
+/// Marca la fila cuyo estado ha cambiado hace poco, desvaneciéndose.
+///
+/// El movimiento de una fila sirve de aviso cuando lo provoca quien mira: se
+/// pulsa Levantar y la fila baja a la mitad de los activos. No sirve de nada
+/// cuando el cambio ocurre solo —un túnel que se cae mientras estabas en otra
+/// ventana—, porque el movimiento ya pasó y nadie lo vio: se vuelve y la lista
+/// es otra, sin saber qué se movió. Esta marca cubre ese caso.
+///
+/// No se distingue quién provocó el cambio. Hacerlo obligaría a rastrear el
+/// origen de cada transición, y en los cambios que sí inicia el usuario la
+/// marca es redundante pero no estorba.
+fn marca_de_cambio(ui: &egui::Ui, tema: &Tema, rect: egui::Rect, estado: &EstadoTunel) {
+    let edad = estado.desde.elapsed().as_secs_f32();
+    if edad >= DURACION_MARCA_CAMBIO {
+        return;
+    }
+    // Opacidad decreciente. Mientras se ve, hay que repintar.
+    let opacidad = 1.0 - (edad / DURACION_MARCA_CAMBIO);
+    ui.ctx().request_repaint();
+
+    let color = tema.color_estado(estado.estado).gamma_multiply(opacidad);
+    let ancho = tema.escala.xs.max(3.0);
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(rect.min, egui::vec2(ancho, rect.height())),
+        egui::CornerRadius::same((ancho / 2.0).ceil() as u8),
+        color,
+    );
 }
 
 /// Altura de una fila de la lista.
