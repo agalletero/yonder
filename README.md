@@ -169,14 +169,82 @@ yonder          # abre la ventana si existe servidor gráfico
 yonder gui      # la abre en todo caso
 ```
 
-### 4.2 Parámetros del formulario «Nuevo túnel»
+### 4.2 Cómo se organiza la lista
+
+**Los reenvíos se agrupan por el host que los sostiene.** OpenSSH abre una sola
+conexión maestra por host y cuelga de ella todos sus reenvíos; la lista refleja
+esa jerarquía. El alias, el usuario y el destino aparecen una vez, en la
+cabecera del grupo, junto al recuento de cuántos de sus reenvíos están en pie.
+Un host con un único reenvío no lleva cabecera: se indica su alias en la propia
+fila.
+
+**Cada reenvío ocupa una línea**, encabezada por su nombre. Los extremos se
+abrevian a su forma mínima discriminante:
+
+```
+:1522 → 192.0.2.30:1521      la dirección local se omite: es 127.0.0.1 en todas
+0.0.0.0:8080 → interno:80    salvo cuando NO es el bucle local, que sí importa
+:1080 → SOCKS                reenvío dinámico
+```
+
+**La pantalla se divide en dos.** Los túneles en pie ocupan la mitad inferior,
+separados por una línea con su recuento; el resto queda arriba. Responden a
+preguntas distintas —lo que está arriba se vigila, lo que está en reposo se
+busca para arrancarlo— y separarlos evita tener que leer el estado de cada fila
+para saber en cuál de las dos situaciones se está.
+
+Un host cuyos reenvíos estén en ambos estados aparece en las dos mitades, cada
+una con su propio recuento.
+
+### 4.3 El nombre de un reenvío
+
+El nombre es lo que encabeza la fila y lo único que distingue un reenvío de sus
+vecinos, que comparten alias y destino. Se define en el campo **Nombre** del
+formulario y se guarda como un comentario delante de su directiva:
+
+```
+Host salto
+    HostName 192.0.2.10
+    # nombre: oracle-preprod
+    LocalForward 1522 192.0.2.30:1521
+    # nombre: api-health
+    # salud: http:/api/health
+    LocalForward 3000 192.0.2.50:3000
+```
+
+OpenSSH ignora la línea por tratarse de un comentario, de modo que la definición
+sigue residiendo en un único fichero.
+
+Cuando no se indica ninguno, se deriva del destino: `oracle-1521`,
+`grafana-3000`, `ssh-22`. Para un puerto sin servicio reconocido se emplea
+`puerto-9418`, que informa de lo que se sabe sin inventar lo que no.
+
+### 4.4 Tamaño de la interfaz
+
+Se ajusta con el contador de **Ajustes**, en pasos del 5 % entre el 80 % y el
+200 %, o con los atajos habituales:
+
+| Atajo | Efecto |
+|---|---|
+| `Ctrl` `+` | Aumentar |
+| `Ctrl` `-` | Reducir |
+| `Ctrl` `0` | Volver al 100 % |
+
+El valor se guarda en las preferencias y se conserva entre sesiones. El techo
+del 200 % responde a la pauta 1.4.4 de las WCAG, que exige poder ampliar el
+texto al doble sin que la maquetación se rompa.
+
+La barra inferior muestra la versión en ejecución, junto al recuento de túneles
+y la ruta del fichero de configuración.
+
+### 4.5 Parámetros del formulario «Nuevo túnel»
 
 El formulario se compone de dos partes: los datos de la conexión, comunes a
 todos sus reenvíos, y una fila por cada puerto reenviado. Bajo cada fila se
 muestra la línea exacta que se escribirá en el fichero, de modo que el
 resultado es visible antes de guardar.
 
-#### 4.2.1 Datos de la conexión
+#### 4.5.1 Datos de la conexión
 
 | Campo | Obligatorio | Directiva | Descripción |
 |---|---|---|---|
@@ -188,7 +256,7 @@ resultado es visible antes de guardar.
 | **Clave privada** | No | `IdentityFile` | Ruta de la clave. En blanco la elección corresponde a `ssh-agent`. Una clave respaldada por hardware (sufijo `_sk`) exigirá interactuar con el dispositivo físico |
 | **Nota** | No | comentario `# nota:` | Texto libre que se muestra bajo el túnel en la lista. OpenSSH lo ignora por tratarse de un comentario |
 
-#### 4.2.2 Reenvíos
+#### 4.5.2 Reenvíos
 
 Se admite más de un reenvío por conexión, y todos comparten la misma conexión
 maestra. Debe declararse al menos uno.
@@ -197,7 +265,7 @@ maestra. Debe declararse al menos uno.
 |---|---|---|
 | **Tipo** | Sí | `Local` (`LocalForward`, equivalente a `-L`) abre un puerto en la máquina propia hacia un destino accesible desde el servidor remoto. `Remoto` (`RemoteForward`, `-R`) hace lo inverso: abre el puerto en el servidor remoto hacia un destino accesible desde aquí. `SOCKS` (`DynamicForward`, `-D`) abre un proxy dinámico y no requiere destino |
 | **Escucha en** | No | Interfaz en la que se abre el puerto. En blanco, `localhost`, de modo que solo es accesible desde la propia máquina. Indicar una dirección que abarque todas las interfaces expone el puerto al resto de la red, y el formulario lo advierte |
-| **Puerto local** | Sí | Puerto que se abre. Los inferiores a 1024 requieren la capacidad descrita en el apartado 4.4 |
+| **Puerto local** | Sí | Puerto que se abre. Los inferiores a 1024 requieren la capacidad descrita en el apartado 4.7 |
 | **Host remoto** | Sí, salvo en `SOCKS` | Destino del reenvío, resuelto **desde el servidor remoto**. El valor predeterminado es `localhost`, que designa al propio servidor y no a la máquina de origen |
 | **Puerto remoto** | Sí, salvo en `SOCKS` | Puerto del destino |
 | **Comprobación** | No | Procedimiento de verificación de salud, disponible solo en los reenvíos locales. Las opciones se detallan en el apartado 5.2 |
@@ -208,7 +276,7 @@ sondear desde aquí, y un proxy SOCKS no responde a peticiones HTTP ni emite
 saludo alguno, por lo que cualquier sonda de ese tipo lo marcaría
 permanentemente como inoperativo.
 
-#### 4.2.3 Validaciones y advertencias
+#### 4.5.3 Validaciones y advertencias
 
 Impiden guardar:
 
@@ -227,7 +295,7 @@ falle la conexión:
 - Reenvío que escucha en todas las interfaces y queda por tanto accesible desde
   la red.
 
-### 4.3 Interfaz de línea de órdenes
+### 4.6 Interfaz de línea de órdenes
 
 La totalidad de las operaciones disponibles en la ventana puede ejecutarse sin
 ella:
@@ -252,7 +320,7 @@ ella:
 La salida se emite sin colores, con los prefijos `[ERR]`, `[WARN]`, `[INFO]` y
 `[DEBUG]`.
 
-### 4.4 Puertos inferiores a 1024
+### 4.7 Puertos inferiores a 1024
 
 Su reenvío requiere una capacidad que el ejecutable no incorpora de serie. La
 aplicación lo detecta durante la validación del túnel e indica la orden que debe
