@@ -29,6 +29,78 @@ pub use supervisor::{Instantanea, Orden, PoliticaReintento, Supervisor};
 /// margen para enterarse pronto sin martillear el servicio del otro lado.
 pub const INTERVALO_SALUD_POR_DEFECTO: Duration = Duration::from_secs(30);
 
+/// Todo lo que hace falta para abrir una conexión **fuera** del motor.
+///
+/// Son datos clonados: un hilo obrero puede llevarse el plan, tardar los dos
+/// minutos que tarde una autenticación, y el motor sigue libre para atender
+/// órdenes. Es la pieza que evita que un host colgado secuestre al supervisor.
+#[derive(Debug, Clone)]
+pub struct PlanDeConexion {
+    pub tunel: Tunel,
+    pub host: Host,
+    pub opciones: OpcionesMaestro,
+    pub entorno: Entorno,
+}
+
+/// Resultado del trabajo de conexión hecho fuera del motor.
+#[derive(Debug)]
+pub struct Conexion {
+    /// PID del maestro si se abrió.
+    pub resultado: Resultado<u32>,
+    /// La comprobación barata: ¿escucha el puerto local?
+    pub escuchando: bool,
+    /// La sonda profunda, si al reenvío le aplica. Se hace aquí, en el obrero,
+    /// porque atraviesa el túnel y puede tardar; el veredicto viaja de vuelta.
+    pub veredicto: Option<Veredicto>,
+}
+
+/// Abre el maestro, activa el reenvío y sondea. Bloquea: llamar desde un hilo
+/// que pueda permitírselo. No toca el motor; el resultado se entrega con
+/// [`Motor::concluir_levantar`].
+pub fn conectar(plan: &PlanDeConexion) -> Conexion {
+    let resultado = (|| -> Resultado<u32> {
+        let maestro = Maestro::de(&plan.tunel.alias)?;
+        let pid = maestro.abrir(&plan.host, &plan.opciones, &plan.entorno)?;
+        forward::activar(&maestro.control, &plan.tunel.reenvio, &plan.entorno)?;
+        Ok(pid)
+    })();
+
+    let escuchando = resultado.is_ok() && forward::confirmado(&plan.tunel.reenvio);
+    // Se sondea aquí mismo. Si el reenvío nace zombi —un destino que apunta a
+    // donde no hay servicio— hay que verlo ahora y no dentro de medio minuto
+    // con un punto verde de por medio.
+    let veredicto = if escuchando
+        && plan.tunel.reenvio.salud.atraviesa_el_tunel()
+        && plan.tunel.reenvio.tipo.escucha_en_local()
+    {
+        Some(salud::sondear(
+            &plan.tunel.reenvio.salud,
+            plan.tunel.reenvio.escucha.direccion_efectiva(),
+            plan.tunel.reenvio.escucha.puerto,
+            true,
+        ))
+    } else {
+        None
+    };
+
+    Conexion {
+        resultado,
+        escuchando,
+        veredicto,
+    }
+}
+
+/// Una sonda de salud que toca ejecutar, con todo lo necesario para hacerlo
+/// fuera del motor. El veredicto vuelve por [`Motor::fijar_salud`].
+#[derive(Debug, Clone)]
+pub struct Sonda {
+    pub id: String,
+    pub salud: crate::modelo::Salud,
+    pub direccion: String,
+    pub puerto: u16,
+    pub escuchando: bool,
+}
+
 /// Motor de la aplicación.
 pub struct Motor {
     pub catalogo: Catalogo,
@@ -191,7 +263,19 @@ impl Motor {
     /// Es idempotente. Si el maestro ya estaba abierto no se reautentica: es
     /// justo lo que hace que activar un segundo túnel del mismo host sea
     /// instantáneo (§3.2).
+    ///
+    /// Bloquea hasta que la conexión termina: es la forma de la CLI. El
+    /// supervisor no la usa; llama a las tres fases por separado para que la
+    /// conexión corra en un hilo obrero y el bucle siga atendiendo órdenes.
     pub fn levantar(&mut self, id: &str) -> Resultado<()> {
+        let plan = self.preparar_levantar(id)?;
+        let conexion = conectar(&plan);
+        self.concluir_levantar(id, conexion)
+    }
+
+    /// Fase previa de [`Motor::levantar`]: valida, anota la intención y deja el
+    /// túnel en `Conectando`. Todo lo lento queda para [`conectar`].
+    pub fn preparar_levantar(&mut self, id: &str) -> Resultado<PlanDeConexion> {
         let tunel = self.tunel(id)?;
         let host = self.host_de(&tunel)?.clone();
 
@@ -205,21 +289,41 @@ impl Motor {
         self.olvidar_salud(id);
         self.transitar(id, Estado::Conectando);
 
-        let resultado = (|| -> Resultado<u32> {
-            let maestro = Maestro::de(&tunel.alias)?;
-            let pid = maestro.abrir(&host, &self.opciones, &self.entorno)?;
-            forward::activar(&maestro.control, &tunel.reenvio, &self.entorno)?;
-            Ok(pid)
-        })();
+        Ok(PlanDeConexion {
+            tunel,
+            host,
+            opciones: self.opciones.clone(),
+            entorno: self.entorno.clone(),
+        })
+    }
 
-        match resultado {
+    /// Fase final de [`Motor::levantar`]: aplica al estado lo que la conexión
+    /// haya dado de sí.
+    pub fn concluir_levantar(&mut self, id: &str, conexion: Conexion) -> Resultado<()> {
+        match conexion.resultado {
             Ok(pid) => {
+                // El usuario pudo bajarlo mientras el obrero conectaba. La
+                // intención guardada manda: se deshace en vez de resucitarlo.
+                let deseado = self.base.tunel(id).map(|r| r.deseado).unwrap_or(false);
+                if !deseado {
+                    tracing::info!(id = %id, "conectado, pero ya nadie lo quiere arriba: se deshace");
+                    let _ = self.bajar(id);
+                    return Ok(());
+                }
+
                 self.base.apuntar_exito(id)?;
-                let escuchando = forward::confirmado(&tunel.reenvio);
-                // Se sondea aquí mismo. Si el reenvío nace zombi —un destino
-                // que apunta a donde no hay servicio— hay que verlo ahora y no
-                // dentro de medio minuto con un punto verde de por medio.
-                let sano = escuchando && self.salud_de(&tunel, escuchando);
+                let sano = conexion.escuchando
+                    && conexion
+                        .veredicto
+                        .as_ref()
+                        .map(|v| v.sano())
+                        .unwrap_or(true);
+                if let Some(veredicto) = conexion.veredicto.clone() {
+                    // El veredicto del obrero alimenta la misma memoria que las
+                    // sondas periódicas: la cadencia sigue contando desde aquí.
+                    self.ultima_salud
+                        .insert(id.to_string(), (Instant::now(), veredicto));
+                }
                 self.estado_mut(id).pid_maestro = Some(pid);
                 self.transitar(
                     id,
@@ -230,8 +334,9 @@ impl Motor {
                     },
                 );
                 if !sano {
-                    let motivo = self
-                        .veredicto(id)
+                    let motivo = conexion
+                        .veredicto
+                        .as_ref()
                         .and_then(|v| v.motivo())
                         .unwrap_or("el puerto local no está en escucha")
                         .to_string();
@@ -354,27 +459,9 @@ impl Motor {
     /// `ssh` a lo bruto; aquí se cierra limpiamente y se reabre, que además
     /// recupera de una vez todos los reenvíos del mismo alias.
     pub fn reparar_a_fondo(&mut self, id: &str) -> Resultado<()> {
-        let tunel = self.tunel(id)?;
-        let alias = tunel.alias.clone();
-        tracing::warn!(alias = %alias, "el reenvío no se recupera: se reabre la conexión maestra");
-
-        let maestro = Maestro::de(&alias)?;
-        maestro.cerrar()?;
-
-        // Todos los túneles del alias han caído con el maestro; se recuperan
-        // los que el usuario quiere arriba, empezando por el que dio el aviso.
-        let deseados: Vec<String> = self
-            .catalogo
-            .tuneles()
-            .iter()
-            .filter(|t| t.alias == alias)
-            .map(|t| t.id())
-            .filter(|otro| otro == id || self.base.tunel(otro).map(|r| r.deseado).unwrap_or(false))
-            .collect();
-
+        let deseados = self.preparar_reparacion_a_fondo(id)?;
         let mut primer_error = None;
         for otro in deseados {
-            self.olvidar_salud(&otro);
             if let Err(e) = self.levantar(&otro) {
                 if primer_error.is_none() {
                     primer_error = Some(e);
@@ -387,11 +474,53 @@ impl Motor {
         }
     }
 
+    /// La parte rápida de [`Motor::reparar_a_fondo`]: cierra el maestro y dice
+    /// qué túneles hay que relevantar. El supervisor los reconecta en hilos
+    /// obreros; la CLI los reconecta en línea con [`Motor::levantar`].
+    pub fn preparar_reparacion_a_fondo(&mut self, id: &str) -> Resultado<Vec<String>> {
+        let tunel = self.tunel(id)?;
+        let alias = tunel.alias.clone();
+        tracing::warn!(alias = %alias, "el reenvío no se recupera: se reabre la conexión maestra");
+
+        let maestro = Maestro::de(&alias)?;
+        maestro.cerrar()?;
+
+        // Todos los túneles del alias han caído con el maestro; se recuperan
+        // los que el usuario quiere arriba, empezando por el que dio el aviso.
+        Ok(self
+            .catalogo
+            .tuneles()
+            .iter()
+            .filter(|t| t.alias == alias)
+            .map(|t| t.id())
+            .filter(|otro| otro == id || self.base.tunel(otro).map(|r| r.deseado).unwrap_or(false))
+            .collect())
+    }
+
     /// Reconstruye el estado observando la realidad (§3.6).
     ///
     /// Esta función no actúa: solo mira. Quien decide reintentar es el
     /// supervisor. Separarlo permite que la CLI observe sin efectos.
+    ///
+    /// Las sondas profundas que toquen se ejecutan aquí mismo: es la forma de
+    /// la CLI, que puede permitirse esperar los cuatro segundos de una sonda.
     pub fn observar(&mut self) {
+        let _ = self.observar_interno(true);
+    }
+
+    /// Igual que [`Motor::observar`], pero sin abrir ninguna conexión.
+    ///
+    /// Devuelve las sondas que tocan para que quien llama las ejecute fuera
+    /// —el supervisor las manda a hilos obreros— y entregue el veredicto con
+    /// [`Motor::fijar_salud`]. Mientras el veredicto fresco llega, vale el
+    /// último conocido: un latido de optimismo es mejor trato que congelar el
+    /// bucle cuatro segundos por túnel.
+    pub fn observar_sin_sondear(&mut self) -> Vec<Sonda> {
+        self.observar_interno(false)
+    }
+
+    fn observar_interno(&mut self, sondear_en_linea: bool) -> Vec<Sonda> {
+        let mut pendientes = Vec::new();
         let escuchas = Escuchas::tomar();
         let tuneles = self.catalogo.tuneles();
 
@@ -417,7 +546,11 @@ impl Motor {
             // arriba, el maestro vive y el puerto ya escucha. En cualquier otro
             // caso no aportaría nada y sí abriría conexiones para nada.
             let sano = if deseado && maestro_vivo && escuchando {
-                self.salud_de(tunel, escuchando)
+                if sondear_en_linea {
+                    self.salud_de(tunel, escuchando)
+                } else {
+                    self.salud_cacheada(tunel, escuchando, &mut pendientes)
+                }
             } else {
                 true
             };
@@ -485,6 +618,7 @@ impl Motor {
 
             self.refrescar_pid(tunel, maestro_vivo);
         }
+        pendientes
     }
 
     /// Sondea la salud profunda de un túnel, con memoria y cadencia propia.
@@ -537,6 +671,61 @@ impl Motor {
         sano
     }
 
+    /// El último veredicto conocido, apuntando de paso las sondas que tocan.
+    ///
+    /// Es la variante de [`Motor::salud_de`] que nunca abre conexiones: si la
+    /// cadencia dice que toca sondear, el trabajo se apunta en `pendientes` y
+    /// el veredicto llegará después por [`Motor::fijar_salud`]. Sin ningún
+    /// veredicto previo se concede la duda; se corrige en cuanto la sonda
+    /// responde.
+    fn salud_cacheada(
+        &mut self,
+        tunel: &Tunel,
+        escuchando: bool,
+        pendientes: &mut Vec<Sonda>,
+    ) -> bool {
+        if !tunel.reenvio.salud.atraviesa_el_tunel() {
+            return escuchando;
+        }
+        if !tunel.reenvio.tipo.escucha_en_local() {
+            return escuchando;
+        }
+
+        let id = tunel.id();
+        let toca = self
+            .ultima_salud
+            .get(&id)
+            .map(|(momento, _)| momento.elapsed() >= self.intervalo_salud)
+            .unwrap_or(true);
+        if toca {
+            pendientes.push(Sonda {
+                id: id.clone(),
+                salud: tunel.reenvio.salud.clone(),
+                direccion: tunel.reenvio.escucha.direccion_efectiva().to_string(),
+                puerto: tunel.reenvio.escucha.puerto,
+                escuchando,
+            });
+        }
+
+        self.ultima_salud
+            .get(&id)
+            .map(|(_, veredicto)| veredicto.sano())
+            .unwrap_or(true)
+    }
+
+    /// Entrega el veredicto de una sonda ejecutada fuera del motor.
+    pub fn fijar_salud(&mut self, id: &str, veredicto: Veredicto) {
+        if !veredicto.sano() {
+            tracing::warn!(
+                id = %id,
+                "el túnel no responde: {}",
+                veredicto.motivo().unwrap_or("motivo desconocido")
+            );
+        }
+        self.ultima_salud
+            .insert(id.to_string(), (Instant::now(), veredicto));
+    }
+
     /// Obliga a que la siguiente observación vuelva a sondear ese túnel.
     ///
     /// Se usa tras reparar: dar por bueno el veredicto anterior dejaría el
@@ -584,9 +773,13 @@ impl Motor {
     }
 
     /// Limpieza de sockets huérfanos al arrancar (§3.6).
+    ///
+    /// Observa sin sondear: es lo que permite que la ventana pinte al instante
+    /// aunque haya siete túneles en pie esperando su primera sonda. Los
+    /// veredictos llegan con los primeros latidos del supervisor.
     pub fn limpiar_al_arrancar(&mut self) -> Resultado<control::Limpieza> {
         let informe = control::limpiar_huerfanos()?;
-        self.observar();
+        let _ = self.observar_sin_sondear();
         Ok(informe)
     }
 }

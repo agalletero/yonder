@@ -8,6 +8,7 @@
 //! El supervisor vive en un hilo y **no es un demonio**: muere con la ventana.
 //! Los maestros no, porque están desprendidos (§3.6).
 
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
@@ -17,9 +18,11 @@ use rand::Rng;
 
 use crate::error::Resultado;
 use crate::modelo::{Host, Tunel};
+use crate::net::salud::{self, Veredicto};
+use crate::ssh::Maestro;
 
 use super::machine::{Estado, EstadoTunel};
-use super::{mensaje_completo, Motor};
+use super::{conectar, mensaje_completo, Conexion, Motor, PlanDeConexion};
 
 /// Reparaciones suaves antes de reabrir la conexión maestra entera.
 ///
@@ -109,6 +112,43 @@ pub enum Orden {
     Terminar,
 }
 
+/// Lo que circula por el canal del supervisor.
+///
+/// Las órdenes vienen de la interfaz; el resto lo mandan los hilos obreros.
+/// Compartir canal es lo que permite que el bucle espere una sola cosa.
+enum Mensaje {
+    Orden(Orden),
+    /// Un obrero terminó de conectar un túnel.
+    Conectado {
+        id: String,
+        conexion: Conexion,
+    },
+    /// Una sonda de salud terminó.
+    Sondeado {
+        id: String,
+        veredicto: Veredicto,
+    },
+}
+
+/// La conexión en curso de un alias, con los túneles que esperan su maestro.
+///
+/// Un obrero por alias: dos aperturas simultáneas del mismo maestro se
+/// pisarían el socket de control. Los túneles que llegan mientras tanto se
+/// apuntan y salen en cuanto el maestro queda abierto, que además es el caso
+/// rápido: sobre un maestro ya autenticado, activar un reenvío es instantáneo.
+struct VueloAlias {
+    conectando: String,
+    pendientes: Vec<String>,
+}
+
+/// Contabilidad de un «levantar varios»: el resumen se da cuando termina el
+/// último, porque con obreros ya no hay un final común que esperar en línea.
+struct Lote {
+    pendientes: HashSet<String>,
+    total: usize,
+    fallos: Vec<String>,
+}
+
 /// Lo que la interfaz lee en cada fotograma. Nunca bloquea al supervisor.
 #[derive(Debug, Clone, Default)]
 pub struct Instantanea {
@@ -166,7 +206,7 @@ type Despertador = Arc<Mutex<Option<Box<dyn Fn() + Send + 'static>>>>;
 
 /// Asa del supervisor. Se queda en el hilo de la interfaz.
 pub struct Supervisor {
-    ordenes: Sender<Orden>,
+    ordenes: Sender<Mensaje>,
     compartido: Arc<Mutex<Instantanea>>,
     hilo: Option<JoinHandle<()>>,
     /// Se despierta al hilo del dibujo cuando cambia algo.
@@ -182,16 +222,22 @@ impl Supervisor {
 
         let compartido_hilo = Arc::clone(&compartido);
         let despertador_hilo = Arc::clone(&despertador);
+        let emisor_hilo = emisor.clone();
         let hilo = std::thread::Builder::new()
             .name("supervisor".to_string())
             .spawn(move || {
                 let mut bucle = Bucle {
                     motor,
                     politica,
-                    reparaciones: std::collections::HashMap::new(),
+                    reparaciones: HashMap::new(),
                     compartido: compartido_hilo,
                     despertador: despertador_hilo,
                     generacion: 0,
+                    emisor: emisor_hilo,
+                    en_vuelo: HashMap::new(),
+                    en_sonda: HashSet::new(),
+                    sondas_viciadas: HashSet::new(),
+                    lote: None,
                 };
                 bucle.ejecutar(receptor);
             })
@@ -216,7 +262,7 @@ impl Supervisor {
     }
 
     pub fn enviar(&self, orden: Orden) {
-        if self.ordenes.send(orden).is_err() {
+        if self.ordenes.send(Mensaje::Orden(orden)).is_err() {
             tracing::warn!("el supervisor ya no escucha órdenes");
         }
     }
@@ -239,7 +285,7 @@ impl Supervisor {
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        let _ = self.ordenes.send(Orden::Terminar);
+        let _ = self.ordenes.send(Mensaje::Orden(Orden::Terminar));
         if let Some(hilo) = self.hilo.take() {
             let _ = hilo.join();
         }
@@ -251,35 +297,103 @@ struct Bucle {
     motor: Motor,
     politica: PoliticaReintento,
     /// Reparaciones suaves fallidas seguidas, por túnel.
-    reparaciones: std::collections::HashMap<String, u32>,
+    reparaciones: HashMap<String, u32>,
     compartido: Arc<Mutex<Instantanea>>,
     despertador: Despertador,
     generacion: u64,
+    /// Por donde los hilos obreros devuelven su trabajo.
+    emisor: Sender<Mensaje>,
+    /// Conexiones en curso, una por alias.
+    en_vuelo: HashMap<String, VueloAlias>,
+    /// Sondas de salud en curso, por túnel.
+    en_sonda: HashSet<String>,
+    /// Sondas cuyo resultado ya no vale: el túnel se reconectó mientras
+    /// volaban y el veredicto describiría la conexión anterior.
+    sondas_viciadas: HashSet<String>,
+    /// El «levantar varios» en curso, si lo hay.
+    lote: Option<Lote>,
 }
 
 impl Bucle {
-    fn ejecutar(&mut self, receptor: Receiver<Orden>) {
+    fn ejecutar(&mut self, receptor: Receiver<Mensaje>) {
         if let Err(e) = self.motor.limpiar_al_arrancar() {
             tracing::warn!("la limpieza inicial de sockets falló: {e}");
         }
         self.publicar(None);
 
+        // El latido se mide aparte del canal: los mensajes de los obreros
+        // pueden llegar seguidos y `recv_timeout` a plazo fijo no vencería
+        // nunca, dejando la supervisión sin ejecutar mientras haya tráfico.
+        let mut ultimo_latido = Instant::now();
         loop {
-            match receptor.recv_timeout(LATIDO) {
-                Ok(Orden::Terminar) | Err(RecvTimeoutError::Disconnected) => break,
-                Ok(orden) => {
-                    let aviso = self.atender(orden);
-                    self.motor.observar();
+            let restante = LATIDO.saturating_sub(ultimo_latido.elapsed());
+            match receptor.recv_timeout(restante) {
+                Ok(Mensaje::Orden(Orden::Terminar)) | Err(RecvTimeoutError::Disconnected) => break,
+                Ok(mensaje) => {
+                    let aviso = self.atender_mensaje(mensaje);
+                    self.observar_y_sondear();
                     self.publicar(aviso);
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    self.motor.observar();
+                    self.observar_y_sondear();
                     self.supervisar();
                     self.publicar(None);
+                    ultimo_latido = Instant::now();
                 }
             }
         }
         tracing::info!("supervisor detenido; los maestros siguen en pie");
+    }
+
+    fn atender_mensaje(&mut self, mensaje: Mensaje) -> Option<Aviso> {
+        match mensaje {
+            Mensaje::Orden(orden) => self.atender(orden),
+            Mensaje::Conectado { id, conexion } => self.concluir_conexion(&id, conexion),
+            Mensaje::Sondeado { id, veredicto } => {
+                self.en_sonda.remove(&id);
+                if self.sondas_viciadas.remove(&id) {
+                    // El túnel se reconectó mientras la sonda volaba: el
+                    // veredicto habla de una conexión que ya no existe.
+                    return None;
+                }
+                self.motor.fijar_salud(&id, veredicto);
+                None
+            }
+        }
+    }
+
+    /// Observa la realidad y manda a hilos obreros las sondas que toquen.
+    ///
+    /// Las sondas atraviesan el túnel y tardan hasta cuatro segundos: dentro
+    /// del bucle congelarían la atención de órdenes, que es justo lo que el
+    /// latido debe evitar.
+    fn observar_y_sondear(&mut self) {
+        for sonda in self.motor.observar_sin_sondear() {
+            if self.en_sonda.contains(&sonda.id) {
+                continue;
+            }
+            let id = sonda.id.clone();
+            self.en_sonda.insert(id.clone());
+            let emisor = self.emisor.clone();
+            let lanzado = std::thread::Builder::new()
+                .name(format!("sonda-{}", sonda.id))
+                .spawn(move || {
+                    let veredicto = salud::sondear(
+                        &sonda.salud,
+                        &sonda.direccion,
+                        sonda.puerto,
+                        sonda.escuchando,
+                    );
+                    let _ = emisor.send(Mensaje::Sondeado {
+                        id: sonda.id,
+                        veredicto,
+                    });
+                });
+            if lanzado.is_err() {
+                // Sin hilo no hay sonda esta ronda; la siguiente lo reintenta.
+                self.en_sonda.remove(&id);
+            }
+        }
     }
 
     fn atender(&mut self, orden: Orden) -> Option<Aviso> {
@@ -287,22 +401,33 @@ impl Bucle {
             Orden::Levantar(id) => self.levantar(&id),
             Orden::Bajar(id) => self.bajar(&id),
             Orden::LevantarVarios(ids) => {
-                let mut fallos = Vec::new();
-                for id in &ids {
-                    if let Some(aviso) = self.levantar(id) {
-                        if aviso.grave {
-                            fallos.push(aviso.texto);
+                match &mut self.lote {
+                    Some(lote) => {
+                        for id in &ids {
+                            if lote.pendientes.insert(id.clone()) {
+                                lote.total += 1;
+                            }
                         }
                     }
+                    None => {
+                        self.lote = Some(Lote {
+                            pendientes: ids.iter().cloned().collect(),
+                            total: ids.len(),
+                            fallos: Vec::new(),
+                        });
+                    }
                 }
-                if fallos.is_empty() {
-                    Some(Aviso::informativo(format!(
-                        "{} túneles levantados",
-                        ids.len()
-                    )))
-                } else {
-                    Some(Aviso::error(fallos.join("\n")))
+                let cuantos = ids.len();
+                let mut resumen = None;
+                for id in &ids {
+                    // Un fallo de preparación concluye el túnel aquí mismo, y
+                    // con él puede concluir el lote entero.
+                    if let Some(aviso) = self.levantar(id) {
+                        resumen.get_or_insert(aviso);
+                    }
                 }
+                resumen
+                    .or_else(|| Some(Aviso::informativo(format!("levantando {cuantos} túneles…"))))
             }
             Orden::BajarVarios(ids) => {
                 for id in &ids {
@@ -389,14 +514,155 @@ impl Bucle {
         }
     }
 
+    /// Pone un túnel a levantarse sin esperar a que termine.
+    ///
+    /// La fase previa —validar, anotar la intención, pasar a `Conectando`— se
+    /// hace aquí, en el bucle; la conexión, que puede tardar dos minutos de
+    /// autenticación, se va a un hilo obrero y vuelve como [`Mensaje::Conectado`].
     fn levantar(&mut self, id: &str) -> Option<Aviso> {
-        match self.motor.levantar(id) {
-            Ok(()) => None,
+        let plan = match self.motor.preparar_levantar(id) {
+            Ok(plan) => plan,
             Err(e) => {
                 self.programar_reintento(id);
-                Some(Aviso::error(format!("{id}: {}", mensaje_completo(&e))))
+                let texto = format!("{id}: {}", mensaje_completo(&e));
+                let (en_lote, resumen) = self.anotar_en_lote(id, Some(&texto));
+                return resumen.or(if en_lote {
+                    None
+                } else {
+                    Some(Aviso::error(texto))
+                });
+            }
+        };
+
+        // Si hay una sonda en vuelo, su veredicto describirá la conexión que
+        // esta reconexión sustituye: se descarta cuando llegue.
+        if self.en_sonda.contains(id) {
+            self.sondas_viciadas.insert(id.to_string());
+        }
+
+        let alias = plan.tunel.alias.clone();
+        if let Some(vuelo) = self.en_vuelo.get_mut(&alias) {
+            // El maestro de este alias ya se está abriendo: a la cola. Saldrá
+            // en cuanto abra, que es además el caso rápido.
+            if vuelo.conectando != id && !vuelo.pendientes.iter().any(|p| p == id) {
+                vuelo.pendientes.push(id.to_string());
+            }
+            return None;
+        }
+
+        self.lanzar_conexion(alias, id.to_string(), plan);
+        None
+    }
+
+    fn lanzar_conexion(&mut self, alias: String, id: String, plan: PlanDeConexion) {
+        let emisor = self.emisor.clone();
+        let id_obrero = id.clone();
+        let lanzado = std::thread::Builder::new()
+            .name(format!("conexion-{alias}"))
+            .spawn(move || {
+                let conexion = conectar(&plan);
+                let _ = emisor.send(Mensaje::Conectado {
+                    id: id_obrero,
+                    conexion,
+                });
+            });
+        match lanzado {
+            Ok(_) => {
+                self.en_vuelo.insert(
+                    alias,
+                    VueloAlias {
+                        conectando: id,
+                        pendientes: Vec::new(),
+                    },
+                );
+            }
+            Err(e) => {
+                // Sin hilo no hay conexión esta vez; el reintento programado
+                // la vuelve a pedir en unos segundos.
+                tracing::warn!(id = %id, "no se pudo crear el hilo de conexión: {e}");
+                self.programar_reintento(&id);
             }
         }
+    }
+
+    /// Aplica el resultado que trae un obrero y despacha la cola de su alias.
+    fn concluir_conexion(&mut self, id: &str, conexion: Conexion) -> Option<Aviso> {
+        let alias = self
+            .en_vuelo
+            .iter()
+            .find(|(_, vuelo)| vuelo.conectando == id)
+            .map(|(alias, _)| alias.clone());
+        let pendientes = match &alias {
+            Some(alias) => self
+                .en_vuelo
+                .remove(alias)
+                .map(|vuelo| vuelo.pendientes)
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
+
+        let mut aviso = if self.motor.tunel(id).is_ok() {
+            match self.motor.concluir_levantar(id, conexion) {
+                Ok(()) => self.anotar_en_lote(id, None).1,
+                Err(e) => {
+                    self.programar_reintento(id);
+                    let texto = format!("{id}: {}", mensaje_completo(&e));
+                    let (en_lote, resumen) = self.anotar_en_lote(id, Some(&texto));
+                    resumen.or(if en_lote {
+                        None
+                    } else {
+                        Some(Aviso::error(texto))
+                    })
+                }
+            }
+        } else {
+            // El túnel se borró mientras el obrero conectaba. Si dejó un
+            // maestro abierto que ya nadie del alias quiere, se cierra: una
+            // carrera no puede dejar huérfanos.
+            if conexion.resultado.is_ok() {
+                if let Some(alias) = &alias {
+                    if !self.motor.quedan_deseados_en(alias, id) {
+                        if let Ok(maestro) = Maestro::de(alias) {
+                            let _ = maestro.cerrar();
+                        }
+                    }
+                }
+            }
+            self.anotar_en_lote(id, None).1
+        };
+
+        // Los que esperaban el maestro de este alias salen ahora.
+        for pendiente in pendientes {
+            if let Some(otro) = self.levantar(&pendiente) {
+                aviso.get_or_insert(otro);
+            }
+        }
+        aviso
+    }
+
+    /// Da un túnel por concluido dentro del lote, si pertenece a uno.
+    ///
+    /// Devuelve si pertenecía y, cuando era el último, el aviso de resumen.
+    fn anotar_en_lote(&mut self, id: &str, fallo: Option<&str>) -> (bool, Option<Aviso>) {
+        let Some(lote) = &mut self.lote else {
+            return (false, None);
+        };
+        if !lote.pendientes.remove(id) {
+            return (false, None);
+        }
+        if let Some(fallo) = fallo {
+            lote.fallos.push(fallo.to_string());
+        }
+        if !lote.pendientes.is_empty() {
+            return (true, None);
+        }
+        let lote = self.lote.take().expect("el lote existe: se acaba de usar");
+        let resumen = if lote.fallos.is_empty() {
+            Aviso::informativo(format!("{} túneles levantados", lote.total))
+        } else {
+            Aviso::error(lote.fallos.join("\n"))
+        };
+        (true, Some(resumen))
     }
 
     fn bajar(&mut self, id: &str) -> Option<Aviso> {
@@ -462,40 +728,52 @@ impl Bucle {
                 // reautentica; si insiste, reabrir el maestro entero.
                 Estado::Degradado => {
                     let intentos = *self.reparaciones.get(&id).unwrap_or(&0);
-                    let resultado = if intentos < REPARACIONES_ANTES_DE_REABRIR {
-                        self.motor.reparar(&id)
-                    } else {
-                        self.motor.reparar_a_fondo(&id)
-                    };
-
-                    match resultado {
-                        Ok(()) => {
-                            self.reparaciones.remove(&id);
-                            tracing::info!(id = %id, "túnel recuperado");
+                    if intentos < REPARACIONES_ANTES_DE_REABRIR {
+                        match self.motor.reparar(&id) {
+                            Ok(()) => {
+                                self.reparaciones.remove(&id);
+                                tracing::info!(id = %id, "túnel recuperado");
+                            }
+                            Err(e) => {
+                                let cuenta = self.reparaciones.entry(id.clone()).or_insert(0);
+                                *cuenta += 1;
+                                tracing::warn!(
+                                    id = %id,
+                                    intento = *cuenta,
+                                    "no se pudo reparar el túnel: {e}"
+                                );
+                                self.programar_reintento(&id);
+                            }
                         }
-                        Err(e) => {
-                            let cuenta = self.reparaciones.entry(id.clone()).or_insert(0);
-                            *cuenta += 1;
-                            tracing::warn!(
-                                id = %id,
-                                intento = *cuenta,
-                                "no se pudo reparar el túnel: {e}"
-                            );
-                            self.programar_reintento(&id);
+                    } else {
+                        // Reabrir el maestro es cerrar —rápido— y reconectar.
+                        // La reconexión se va a los obreros como cualquier
+                        // otra; si falla, cae en la maquinaria de reintentos.
+                        match self.motor.preparar_reparacion_a_fondo(&id) {
+                            Ok(deseados) => {
+                                self.reparaciones.remove(&id);
+                                for otro in deseados {
+                                    let _ = self.levantar(&otro);
+                                }
+                            }
+                            Err(e) => {
+                                let cuenta = self.reparaciones.entry(id.clone()).or_insert(0);
+                                *cuenta += 1;
+                                tracing::warn!(
+                                    id = %id,
+                                    intento = *cuenta,
+                                    "no se pudo reabrir la conexión maestra: {e}"
+                                );
+                                self.programar_reintento(&id);
+                            }
                         }
                     }
                 }
-                // Sin maestro: reconexión completa.
-                //
-                // El resultado se enlaza en vez de encadenar el `is_err()` al
-                // `if`: «levantar» abre el túnel, y un efecto secundario de ese
-                // calibre tiene que verse en el cuerpo de la rama y no dentro
-                // de la condición.
+                // Sin maestro: reconexión completa, en un hilo obrero. El
+                // fallo de la fase previa ya programa el siguiente reintento
+                // dentro de «levantar»; el de la conexión llega como mensaje.
                 Estado::Reintentando => {
-                    let resultado = self.motor.levantar(&id);
-                    if resultado.is_err() {
-                        self.programar_reintento(&id);
-                    }
+                    let _ = self.levantar(&id);
                 }
                 _ => {}
             }
