@@ -107,6 +107,45 @@ fn entrecomillar(argumento: &str) -> String {
     }
 }
 
+/// Rechaza saltos de línea y caracteres de control.
+///
+/// Un valor con `\n` dentro se convertiría en directivas nuevas al escribirse
+/// en `yonder.conf` —una `ProxyCommand` colada en el campo nota ejecutaría
+/// órdenes en la siguiente conexión—. El resto de caracteres de control no
+/// abren directivas, pero tampoco pintan nada en una configuración.
+fn sin_control(campo: &str, valor: &str) -> Resultado<()> {
+    if valor.chars().any(char::is_control) {
+        return Err(Error::DefinicionInvalida(format!(
+            "{campo} no puede contener saltos de línea ni caracteres de control"
+        )));
+    }
+    Ok(())
+}
+
+/// Rechaza espacios donde `ssh_config` tomaría solo la primera palabra.
+fn sin_espacios(campo: &str, valor: &str) -> Resultado<()> {
+    if valor.contains(char::is_whitespace) {
+        return Err(Error::DefinicionInvalida(format!(
+            "{campo} no puede contener espacios"
+        )));
+    }
+    Ok(())
+}
+
+/// Rechaza valores que `ssh` consumiría como opción.
+///
+/// Todo lo que sale hacia un proceso va como argumento separado, pero `ssh`,
+/// `ssh-keyscan` y `ssh-copy-id` no admiten el separador `--`: un destino
+/// `-oProxyCommand=…` se interpretaría como opción de todos modos.
+fn sin_guion_inicial(campo: &str, valor: &str) -> Resultado<()> {
+    if valor.starts_with('-') {
+        return Err(Error::DefinicionInvalida(format!(
+            "{campo} no puede empezar por «-»: ssh lo tomaría por una opción"
+        )));
+    }
+    Ok(())
+}
+
 fn analizar_puerto(texto: &str) -> Resultado<u16> {
     texto
         .trim()
@@ -708,6 +747,14 @@ impl Host {
     }
 
     /// Comprueba que la definición es coherente antes de guardarla.
+    ///
+    /// Además de la coherencia, aquí se cierra la puerta a dos abusos que la
+    /// gramática permitiría: un valor con salto de línea se convertiría en
+    /// **directivas nuevas** al escribirse en `yonder.conf` —incluida una
+    /// `ProxyCommand`, que ejecuta órdenes—, y un valor que empieza por «-» lo
+    /// consumiría `ssh` como opción, porque `ssh` no admite el separador `--`.
+    /// El fichero es del propio usuario, pero «pega esto en el campo» es un
+    /// vector real y la validación cuesta cuatro líneas.
     pub fn validar(&self) -> Resultado<()> {
         if self.alias.trim().is_empty() {
             return Err(Error::DefinicionInvalida(
@@ -728,6 +775,47 @@ impl Host {
             return Err(Error::DefinicionInvalida(
                 "hay que indicar un HostName o un alias que resuelva".into(),
             ));
+        }
+
+        sin_control("el alias", &self.alias)?;
+        sin_guion_inicial("el alias", &self.alias)?;
+        for (campo, valor) in [
+            ("el HostName", &self.hostname),
+            ("el usuario", &self.usuario),
+        ] {
+            if let Some(valor) = valor {
+                sin_control(campo, valor)?;
+                sin_espacios(campo, valor)?;
+                sin_guion_inicial(campo, valor)?;
+            }
+        }
+        for salto in &self.saltos {
+            sin_control("un salto", salto)?;
+            sin_espacios("un salto", salto)?;
+            sin_guion_inicial("un salto", salto)?;
+        }
+        for identidad in &self.identidades {
+            // Una ruta puede llevar espacios; lo que no puede llevar es un
+            // salto de línea que abra una directiva nueva.
+            sin_control("una IdentityFile", identidad)?;
+        }
+        if let Some(nota) = &self.nota {
+            sin_control("la nota", nota)?;
+        }
+        for reenvio in &self.reenvios {
+            if let Some(nombre) = &reenvio.nombre {
+                sin_control("el nombre del reenvío", nombre)?;
+            }
+            if let Salud::Http { ruta } = &reenvio.salud {
+                sin_control("la ruta de salud", ruta)?;
+                sin_espacios("la ruta de salud", ruta)?;
+            }
+            for extremo in std::iter::once(&reenvio.escucha).chain(reenvio.destino.as_ref()) {
+                if let Some(direccion) = &extremo.direccion {
+                    sin_control("una dirección", direccion)?;
+                    sin_espacios("una dirección", direccion)?;
+                }
+            }
         }
         for reenvio in &self.reenvios {
             if reenvio.tipo != TipoReenvio::Dinamico && reenvio.destino.is_none() {
@@ -1058,5 +1146,59 @@ mod pruebas {
             Extremo::nuevo("otro", 3000),
         ));
         assert!(host.validar().is_err());
+    }
+
+    #[test]
+    fn rechaza_saltos_de_linea_en_cualquier_campo() {
+        // Un «\n» dentro de un valor abriría directivas nuevas al escribir
+        // el fichero: la nota es el campo más fácil de rellenar pegando.
+        let mut host = Host::nuevo("preprod");
+        host.hostname = Some("interno".into());
+        host.nota = Some("línea\n    ProxyCommand touch /tmp/pwned".into());
+        assert!(host.validar().is_err());
+
+        let mut host = Host::nuevo("preprod");
+        host.hostname = Some("interno\nProxyCommand true".into());
+        assert!(host.validar().is_err());
+
+        let mut host = Host::nuevo("preprod");
+        host.hostname = Some("interno".into());
+        host.reenvios.push(
+            Reenvio::local(
+                Extremo::solo_puerto(3000),
+                Extremo::nuevo("localhost", 3000),
+            )
+            .con_salud(Salud::Http {
+                ruta: "/salud\nProxyCommand true".into(),
+            }),
+        );
+        assert!(host.validar().is_err());
+    }
+
+    #[test]
+    fn rechaza_valores_que_ssh_tomaria_por_opciones() {
+        // «ssh» no admite el separador «--»: un destino que empiece por «-»
+        // se consumiría como opción aunque viaje como argumento separado.
+        let host = Host::nuevo("-oProxyCommand=true");
+        assert!(host.validar().is_err());
+
+        let mut host = Host::nuevo("preprod");
+        host.hostname = Some("-oProxyCommand=true".into());
+        assert!(host.validar().is_err());
+
+        let mut host = Host::nuevo("preprod");
+        host.hostname = Some("interno".into());
+        host.saltos.push("-J-abusivo".into());
+        assert!(host.validar().is_err());
+    }
+
+    #[test]
+    fn una_nota_con_acentos_y_espacios_sigue_siendo_valida() {
+        let mut host = Host::nuevo("preprod");
+        host.hostname = Some("interno".into());
+        host.nota = Some("túnel de la base de datos — pedirlo a sistemas".into());
+        host.identidades
+            .push("/ruta/con espacios/id_ed25519".into());
+        assert!(host.validar().is_ok());
     }
 }

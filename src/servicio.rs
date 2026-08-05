@@ -66,7 +66,8 @@ pub fn texto_servicio(binario: &str) -> String {
          # mata todo el grupo al acabar y los túneles caen a los segundos de\n\
          # nacer.\n\
          KillMode=process\n\
-         ExecStart={binario} supervise\n\
+         # Entrecomillado: una ruta con espacios partiría la orden en dos.\n\
+         ExecStart=\"{binario}\" supervise\n\
          \n\
          [Install]\n\
          WantedBy=default.target\n"
@@ -239,7 +240,8 @@ mod pruebas {
         let texto = texto_servicio("/usr/local/bin/yonder");
         assert!(texto.contains("KillMode=process"));
         assert!(texto.contains("Type=oneshot"));
-        assert!(texto.contains("ExecStart=/usr/local/bin/yonder supervise"));
+        // Entrecomillado: una ruta con espacios partiría la orden en dos.
+        assert!(texto.contains("ExecStart=\"/usr/local/bin/yonder\" supervise"));
     }
 
     #[test]
