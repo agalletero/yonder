@@ -367,7 +367,12 @@ fn fila(
                         // cabecera —abajo es un grupo de uno— y perdía ese dato
                         // justo en el momento de necesitarlo.
                         if solo {
-                            ui.label(tema::tenue(&tema, &grupo.alias));
+                            // Salvo cuando el alias ES el nombre visible: un
+                            // reenvío sin nombre propio en un host de un solo
+                            // túnel repetiría la misma palabra en gris al lado.
+                            if tunel.reenvio.nombre_visible() != grupo.alias {
+                                ui.label(tema::tenue(&tema, &grupo.alias));
+                            }
                             if let Some(host) = &grupo.host {
                                 ui.label(tema::tenue(&tema, host.destino_completo()));
                             }
