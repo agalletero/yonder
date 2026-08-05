@@ -540,6 +540,16 @@ sustituido. La precaución es necesaria: `ssh` expande la virgulilla de
 `HOME`, de modo que sin un montaje efectivo la prueba escribiría sobre la
 configuración SSH real. En ausencia de `bwrap` la prueba se omite con un aviso.
 
+La integración continua consta de tres flujos. `pruebas.yml` ejecuta el
+formato, `clippy`, las pruebas unitarias y la de extremo a extremo en cada
+empujón a `main` y en cada *pull request*; `release.yml` invoca ese mismo flujo
+al etiquetar una versión y, superado, construye y publica los paquetes;
+`auditoria.yml` revisa semanalmente los avisos de seguridad de las dependencias
+(`cargo audit`) y comprueba que el `rust-version` declarado en `Cargo.toml`
+sigue compilando el árbol completo. La auditoría corre aparte con deliberación:
+su fallo señala que hay que revisar dependencias, no que un cambio concreto
+haya roto nada.
+
 Los iconos constituyen un subconjunto de [Lucide](https://lucide.dev), embebido
 en el ejecutable. Su regeneración se efectúa mediante:
 

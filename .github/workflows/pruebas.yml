@@ -1,0 +1,62 @@
+name: Pruebas
+
+# Corre en cada empujón a main y en cada PR, y el workflow de publicación lo
+# invoca antes de empaquetar. Sin esto, los commits entre versión y versión no
+# pasaban ni el formato ni las pruebas, y el fallo aparecía al etiquetar: el
+# peor momento posible.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_call:
+
+jobs:
+  pruebas:
+    name: Pruebas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de compilación
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxkbcommon-dev \
+                                  libwayland-dev libxcb1-dev bubblewrap
+
+      # La versión y los componentes salen de rust-toolchain.toml, que es la
+      # única fuente de verdad: rustup la instala al encontrarlo. Declararla
+      # también aquí abriría la puerta a que la CI compilara con una toolchain
+      # distinta de la que usa quien desarrolla.
+      - name: Rust
+        run: |
+          rustup show active-toolchain
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formato
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Pruebas unitarias
+        run: cargo test --all
+
+      - name: Prueba de extremo a extremo
+        run: |
+          # Ubuntu 24.04 en adelante restringe los espacios de nombres de
+          # usuario sin privilegios con AppArmor, y sin ellos «bwrap» no puede
+          # montar el hogar falso.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+          # El guion se salta la prueba cuando no puede aislar, que es lo
+          # correcto en el equipo de alguien pero no aquí: una prueba omitida
+          # en silencio dejaría el trabajo en verde sin haber comprobado nada.
+          bwrap --dev-bind / / --die-with-parent true \
+            || { echo "[ERR] «bwrap» sigue sin poder aislar en el runner"; exit 1; }
+
+          cargo build
+          pruebas/e2e-aislado.sh

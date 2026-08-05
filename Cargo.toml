@@ -2,7 +2,11 @@
 name = "yonder"
 version = "0.1.7"
 edition = "2021"
-rust-version = "1.82"
+# El suelo real lo imponen las dependencias («image» declara 1.88). Quien
+# compile con rustup ni lo nota —rust-toolchain.toml manda—; esto es para que
+# un cargo de distribución falle con un mensaje claro y no con errores de
+# compilación crípticos. La auditoría de la CI comprueba que siga siendo verdad.
+rust-version = "1.88"
 description = "Gestor gráfico de túneles SSH para Linux — orquestador sobre OpenSSH"
 license = "MIT"
 readme = "README.md"

@@ -1,0 +1,60 @@
+name: Auditoría de dependencias
+
+# Aparte de las pruebas a propósito. Un aviso de seguridad publicado hoy en una
+# dependencia de ayer pondría en rojo un empujón que no tocó nada —el mismo
+# motivo por el que la toolchain está fijada—, así que esto corre con su propia
+# cadencia y su rojo señala «hay que mirar dependencias», no «este commit
+# rompió algo».
+on:
+  schedule:
+    # Los lunes por la mañana: da la semana entera para reaccionar.
+    - cron: "0 6 * * 1"
+  push:
+    branches: ["main"]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - ".github/workflows/auditoria.yml"
+  workflow_dispatch:
+
+jobs:
+  avisos:
+    name: Avisos de seguridad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Buscar avisos en las dependencias del lockfile
+        run: cargo audit
+
+  suelo:
+    name: El suelo de Rust declarado sigue siendo verdad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de compilación
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxkbcommon-dev \
+                                  libwayland-dev libxcb1-dev
+
+      # Cargo.toml promete un rust-version mínimo a quien compile sin rustup.
+      # Nadie del equipo lo usa —rust-toolchain.toml manda—, así que solo la CI
+      # puede notar cuándo una dependencia nueva lo deja obsoleto.
+      - name: Leer el suelo declarado
+        id: suelo
+        run: |
+          version="$(grep -oP 'rust-version = "\K[0-9.]+' Cargo.toml)"
+          test -n "$version" || { echo "[ERR] Cargo.toml no declara rust-version"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Comprobar que ese Rust compila el árbol completo
+        run: |
+          rustup toolchain install "${{ steps.suelo.outputs.version }}" --profile minimal
+          cargo "+${{ steps.suelo.outputs.version }}" check --locked --all-targets
