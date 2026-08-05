@@ -35,23 +35,33 @@ enum Accion {
     CopiarClave(String),
 }
 
-pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, grupos: &[GrupoHost]) {
+/// La lista partida en dos: lo que está en pie abajo, lo demás arriba.
+///
+/// La división es una raya, no dos paneles redimensionables: hay dos
+/// situaciones y basta con verlas separadas. Cada mitad crece con lo que tiene,
+/// y si una está vacía no ocupa sitio.
+pub fn mostrar_partido(
+    aplicacion: &mut Aplicacion,
+    ui: &mut egui::Ui,
+    activos: &[GrupoHost],
+    reposo: &[GrupoHost],
+) {
     let tema = *aplicacion.tema();
 
     if let Some(texto) = super::aviso_include(aplicacion) {
         widgets::caja_aviso(ui, &tema, false, &texto);
         ui.add_space(tema.escala.m);
     }
-
     if aplicacion.instantanea().tuneles.is_empty() {
         pantalla_vacia(aplicacion, ui);
         return;
     }
 
-    let visibles: usize = grupos.iter().map(|g| g.tuneles.len()).sum();
-    cabecera_lista(aplicacion, ui, visibles);
+    let n_activos: usize = activos.iter().map(|g| g.tuneles.len()).sum();
+    let n_reposo: usize = reposo.iter().map(|g| g.tuneles.len()).sum();
+    cabecera_lista(aplicacion, ui, n_activos + n_reposo);
 
-    if grupos.is_empty() {
+    if n_activos + n_reposo == 0 {
         ui.add_space(tema.escala.xl);
         ui.vertical_centered(|ui| {
             iconos::mostrar(ui, Icono::BUSCAR, iconos::ENORME, tema.paleta.texto_tenue);
@@ -70,33 +80,68 @@ pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, grupos: &[GrupoHo
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let mut impar = false;
-            for grupo in grupos {
-                // Un host con un solo reenvío no lleva cabecera: un grupo de un
-                // elemento es ruido, y la fila puede decirlo todo ella sola.
-                if grupo.tuneles.len() > 1 {
-                    cabecera_grupo(aplicacion, ui, grupo, &mut acciones);
-                }
-                let solo = grupo.tuneles.len() == 1;
-                for (tunel, estado) in &grupo.tuneles {
-                    fila(
-                        aplicacion,
-                        ui,
-                        tunel,
-                        estado,
-                        grupo,
-                        solo,
-                        impar,
-                        &mut acciones,
-                    );
-                    impar = !impar;
-                }
+
+            // Arriba, lo que está en reposo: es la lista de la que se elige qué
+            // arrancar, y por eso va donde primero cae la vista.
+            pintar_grupos(aplicacion, ui, reposo, &mut acciones);
+
+            if n_activos > 0 {
+                ui.add_space(tema.escala.m);
+                separador_de_activos(ui, &tema, n_activos);
                 ui.add_space(tema.escala.s);
+                pintar_grupos(aplicacion, ui, activos, &mut acciones);
             }
+
             ui.add_space(tema.escala.l);
         });
 
     aplicar(aplicacion, acciones);
+}
+
+/// La raya que parte la pantalla, con el recuento de lo que hay debajo.
+fn separador_de_activos(ui: &mut egui::Ui, tema: &Tema, cuantos: usize) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = tema.escala.s;
+        iconos::mostrar(ui, Icono::ACTIVO, iconos::PEQUENO, tema.paleta.exito);
+        ui.label(
+            egui::RichText::new(if cuantos == 1 {
+                "1 túnel en pie".to_string()
+            } else {
+                format!("{cuantos} túneles en pie")
+            })
+            .size(tema.tipografia.pequeno)
+            .color(tema.paleta.exito),
+        );
+        // La raya ocupa lo que sobra, hasta el borde.
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+        ui.painter().hline(
+            rect.x_range(),
+            rect.center().y,
+            egui::Stroke::new(1.0_f32, tema.paleta.exito.gamma_multiply(0.35)),
+        );
+    });
+}
+
+fn pintar_grupos(
+    aplicacion: &Aplicacion,
+    ui: &mut egui::Ui,
+    grupos: &[GrupoHost],
+    acciones: &mut Vec<Accion>,
+) {
+    let tema = *aplicacion.tema();
+    let mut impar = false;
+    for grupo in grupos {
+        if grupo.tuneles.len() > 1 {
+            cabecera_grupo(aplicacion, ui, grupo, acciones);
+        }
+        let solo = grupo.tuneles.len() == 1;
+        for (tunel, estado) in &grupo.tuneles {
+            fila(aplicacion, ui, tunel, estado, grupo, solo, impar, acciones);
+            impar = !impar;
+        }
+        ui.add_space(tema.escala.s);
+    }
 }
 
 /// Cabecera de un host: el alias una vez, no una por reenvío.

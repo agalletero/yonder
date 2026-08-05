@@ -167,14 +167,31 @@ pub fn boton_secundario(
     } else {
         tema.paleta.texto_tenue
     };
+    let id_previsto = ui.next_auto_id();
+    let encima = activo
+        && ui
+            .ctx()
+            .read_response(id_previsto)
+            .is_some_and(|r| r.hovered());
     let boton = egui::Button::image_and_text(
         iconos::imagen(icono, iconos::NORMAL, tinta),
         egui::RichText::new(texto)
             .size(tema.tipografia.cuerpo)
             .color(tinta),
     )
-    .fill(Color32::TRANSPARENT)
-    .stroke(Stroke::new(1.0_f32, tema.paleta.borde))
+    .fill(if encima {
+        tema.paleta.hover
+    } else {
+        Color32::TRANSPARENT
+    })
+    .stroke(Stroke::new(
+        1.0_f32,
+        if encima {
+            tema.paleta.borde_fuerte
+        } else {
+            tema.paleta.borde
+        },
+    ))
     .corner_radius(CornerRadius::same(tema.radios.medio));
 
     ui.add_enabled(activo, boton)
@@ -197,14 +214,34 @@ pub fn boton_de_fila(
     tinta: Color32,
     texto: &str,
 ) -> egui::Response {
+    // El relleno se decide antes de dibujar, con el identificador que tendrá
+    // el botón.
+    //
+    // Hace falta porque un `Button` con `fill(TRANSPARENT)` anula el realce
+    // automático de egui: el botón se veía exactamente igual con el ratón
+    // encima que sin él, y no había forma de saber que era pulsable hasta
+    // pulsarlo. Un control que no responde al ratón no parece un control.
+    let id_previsto = ui.next_auto_id();
+    let encima = ui
+        .ctx()
+        .read_response(id_previsto)
+        .is_some_and(|r| r.hovered());
+
     let boton = egui::Button::image_and_text(
         iconos::imagen(icono, iconos::PEQUENO, tinta),
         egui::RichText::new(texto)
             .size(tema.tipografia.pequeno)
             .color(tinta),
     )
-    .fill(Color32::TRANSPARENT)
-    .stroke(Stroke::new(1.0_f32, tinta.gamma_multiply(0.35)))
+    .fill(if encima {
+        tinta.gamma_multiply(0.18)
+    } else {
+        Color32::TRANSPARENT
+    })
+    .stroke(Stroke::new(
+        1.0_f32,
+        tinta.gamma_multiply(if encima { 0.8 } else { 0.35 }),
+    ))
     .corner_radius(CornerRadius::same(tema.radios.medio));
 
     ui.add(boton)

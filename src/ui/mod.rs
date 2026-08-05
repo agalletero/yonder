@@ -325,6 +325,45 @@ impl Aplicacion {
     ///
     /// Agrupar devuelve además una capa que la vista plana no podía expresar:
     /// el estado de la conexión maestra, que es por host.
+    /// Los grupos partidos en dos: lo que está en pie, y lo demás.
+    ///
+    /// Lo activo baja a su propia mitad de la pantalla. Un túnel arriba y uno
+    /// definido no se miran para lo mismo: el primero se vigila —qué transporta,
+    /// desde cuándo, si se ha degradado— y el segundo se busca para arrancarlo.
+    /// Mezclados en una sola lista hay que leer el estado de cada fila para
+    /// saber en cuál de las dos situaciones se está; separados, la posición ya
+    /// lo dice.
+    ///
+    /// Un host puede salir en las dos mitades si tiene reenvíos en ambos
+    /// estados, y es lo correcto: la cabecera de cada mitad cuenta lo suyo.
+    fn grupos_partidos(&self) -> (Vec<GrupoHost>, Vec<GrupoHost>) {
+        let mut activos: Vec<GrupoHost> = Vec::new();
+        let mut reposo: Vec<GrupoHost> = Vec::new();
+
+        for grupo in self.grupos() {
+            let (arriba, abajo): (Vec<_>, Vec<_>) = grupo
+                .tuneles
+                .into_iter()
+                .partition(|(_, e)| e.estado.deberia_estar_arriba() || e.residual);
+
+            if !arriba.is_empty() {
+                activos.push(GrupoHost {
+                    alias: grupo.alias.clone(),
+                    host: grupo.host.clone(),
+                    tuneles: arriba,
+                });
+            }
+            if !abajo.is_empty() {
+                reposo.push(GrupoHost {
+                    alias: grupo.alias,
+                    host: grupo.host,
+                    tuneles: abajo,
+                });
+            }
+        }
+        (activos, reposo)
+    }
+
     fn grupos(&self) -> Vec<GrupoHost> {
         let visibles = self.visibles();
         let mut grupos: Vec<GrupoHost> = Vec::new();
@@ -619,6 +658,10 @@ impl Aplicacion {
                         // lo que de verdad se mira de esta barra.
                         let tenue =
                             |texto: String| egui::Label::new(tema::tenue(&tema, texto)).truncate();
+                        // La versión, para poder decir con cuál se está
+                        // hablando cuando algo no cuadra.
+                        ui.add(tenue(format!("v{}", env!("CARGO_PKG_VERSION"))));
+                        ui.label(tema::tenue(&tema, "·"));
                         ui.add(tenue(
                             yonder::rutas::config_tuneles()
                                 .map(|r| yonder::rutas::abreviar(&r))
@@ -751,8 +794,8 @@ impl eframe::App for Aplicacion {
         egui::CentralPanel::default()
             .frame(tema.marco_panel())
             .show(contexto, |ui| {
-                let grupos = self.grupos();
-                lista::mostrar(self, ui, &grupos);
+                let (activos, reposo) = self.grupos_partidos();
+                lista::mostrar_partido(self, ui, &activos, &reposo);
             });
 
         modales::mostrar(self, contexto);
