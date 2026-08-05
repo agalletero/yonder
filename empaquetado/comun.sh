@@ -24,6 +24,17 @@ descripcion_del_proyecto() {
     grep -m1 '^description *= *"' "$RAIZ/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/'
 }
 
+# ORDEN DEL CICLO DE PUBLICACIÓN
+#
+#   1. subir la versión en Cargo.toml
+#   2. compilar
+#   3. REGENERAR LAS CAPTURAS del README
+#   4. pruebas, commit, etiqueta, empaquetado
+#
+# El paso 3 va después del 1 y no antes: la barra de estado muestra la versión
+# en ejecución, así que una captura tomada antes de subirla enseña la anterior y
+# el README de cada versión acaba ilustrado con la de al lado.
+
 # Comprueba que los binarios están compilados en modo release.
 exigir_binarios() {
     local faltan=0
