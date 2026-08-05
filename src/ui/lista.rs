@@ -302,13 +302,18 @@ fn fila(
                             ui.label(tema::tenue(&tema, &grupo.alias));
                         }
                         ui.label(tema::mono(&tema, tunel.reenvio.extremos_breves()));
+                        // El motivo, en dos palabras. El texto completo va en
+                        // el globo de ayuda: en la fila estorba y no se lee.
                         if estado.estado.problematico() {
-                            if let Some(motivo) = &estado.ultimo_error {
-                                ui.label(
-                                    egui::RichText::new(motivo)
+                            if let Some(breve) = estado.motivo_breve() {
+                                let etiqueta = ui.label(
+                                    egui::RichText::new(breve)
                                         .size(tema.tipografia.micro)
                                         .color(tema.color_estado(estado.estado)),
                                 );
+                                if let Some(completo) = &estado.ultimo_error {
+                                    etiqueta.on_hover_text(completo);
+                                }
                             }
                         }
                     });

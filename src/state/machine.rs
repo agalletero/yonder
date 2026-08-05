@@ -154,6 +154,39 @@ pub struct EstadoTunel {
 }
 
 impl EstadoTunel {
+    /// Dos palabras que quepan en la fila, extraídas del error completo.
+    ///
+    /// El error entero es una frase —«el puerto escucha pero no se pudo
+    /// conectar: connection refused»— que en una lista de quince túneles ni
+    /// cabe ni se lee. Aquí se destila a lo que hay que hacer distinto en cada
+    /// caso, que es lo único que decide qué botón pulsar. El texto completo
+    /// sigue disponible en el detalle y en el globo de ayuda.
+    pub fn motivo_breve(&self) -> Option<&'static str> {
+        let error = self.ultimo_error.as_deref()?;
+        let bajo = error.to_lowercase();
+        Some(if bajo.contains("no está en escucha") {
+            "puerto caído"
+        } else if bajo.contains("ocupado") || bajo.contains("address already in use") {
+            "puerto ocupado"
+        } else if bajo.contains("no resuelve") || bajo.contains("no se pudo resolver") {
+            "sin resolver"
+        } else if bajo.contains("escucha pero") || bajo.contains("http") {
+            // El zombi va ANTES que los errores de red, y no es un detalle de
+            // orden: su mensaje los contiene. «el puerto escucha pero no se
+            // pudo conectar: connection refused» es un zombi, no una ruta
+            // rota, y se arregla mirando a dónde apunta el reenvío —no la red.
+            "no transporta"
+        } else if bajo.contains("connection refused") || bajo.contains("rechaz") {
+            "sin ruta"
+        } else if bajo.contains("timed out") || bajo.contains("agotado") {
+            "sin respuesta"
+        } else if bajo.contains("permission denied") || bajo.contains("permiso") {
+            "sin permiso"
+        } else {
+            "no responde"
+        })
+    }
+
     pub fn nuevo(id: impl Into<String>) -> EstadoTunel {
         EstadoTunel {
             id: id.into(),
@@ -242,6 +275,70 @@ impl EstadoTunel {
 #[cfg(test)]
 mod pruebas {
     use super::*;
+
+    fn con_error(texto: &str) -> EstadoTunel {
+        let mut e = EstadoTunel::nuevo("x");
+        e.ultimo_error = Some(texto.to_string());
+        e
+    }
+
+    #[test]
+    fn el_motivo_breve_distingue_lo_que_se_arregla_distinto() {
+        // Los tres casos que no se resuelven igual: el puerto local caído, el
+        // puerto ocupado por otro, y el zombi que abre pero no transporta.
+        assert_eq!(
+            con_error("el puerto local no está en escucha").motivo_breve(),
+            Some("puerto caído")
+        );
+        assert_eq!(
+            con_error("el puerto 3000 está ocupado por «grafana» (PID 42)").motivo_breve(),
+            Some("puerto ocupado")
+        );
+        assert_eq!(
+            con_error("el puerto escucha pero no se pudo conectar: connection refused")
+                .motivo_breve(),
+            Some("no transporta")
+        );
+    }
+
+    #[test]
+    fn sin_error_no_hay_motivo_que_ensenar() {
+        assert_eq!(EstadoTunel::nuevo("x").motivo_breve(), None);
+    }
+
+    #[test]
+    fn un_error_desconocido_no_se_queda_sin_etiqueta() {
+        // Vale más un «no responde» honesto que una fila muda.
+        assert_eq!(
+            con_error("algo raro pasó").motivo_breve(),
+            Some("no responde")
+        );
+    }
+
+    #[test]
+    fn el_maestro_sale_de_lo_que_dicen_sus_reenvios() {
+        let mut vivo = EstadoTunel::nuevo("a");
+        vivo.pid_maestro = Some(123);
+        assert_eq!(EstadoMaestro::de_los_tuneles([&vivo]), EstadoMaestro::Vivo);
+
+        let mut reintentando = EstadoTunel::nuevo("b");
+        reintentando.estado = Estado::Reintentando;
+        assert_eq!(
+            EstadoMaestro::de_los_tuneles([&reintentando]),
+            EstadoMaestro::Caido
+        );
+
+        // Un maestro vivo manda sobre un reenvío caído: es la capa de arriba.
+        assert_eq!(
+            EstadoMaestro::de_los_tuneles([&vivo, &reintentando]),
+            EstadoMaestro::Vivo
+        );
+
+        assert_eq!(
+            EstadoMaestro::de_los_tuneles([&EstadoTunel::nuevo("c")]),
+            EstadoMaestro::Ausente
+        );
+    }
 
     #[test]
     fn el_camino_feliz_esta_permitido() {
