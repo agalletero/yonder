@@ -321,3 +321,69 @@ mod pruebas {
         assert!(!Estado::Fallido.deberia_estar_arriba());
     }
 }
+
+/// Estado de la **conexión maestra** de un host.
+///
+/// Deliberadamente distinto de `Estado`, que describe un reenvío. Son dos capas
+/// y confundirlas fue la causa de que un maestro vivo pudiera quedar invisible:
+/// el maestro es por host, los reenvíos cuelgan de él, y «el maestro vive pero
+/// este reenvío ha caído» es justo la información que distingue una herramienta
+/// fiable de una que enseña puntos verdes sobre algo muerto.
+///
+/// Solo cuatro valores. Un maestro no se degrada ni se reintenta: eso les pasa
+/// a los reenvíos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum EstadoMaestro {
+    /// No hay conexión abierta, ni se ha pedido.
+    #[default]
+    Ausente,
+    /// Se está abriendo o autenticando.
+    Levantando,
+    /// Abierto y respondiendo.
+    Vivo,
+    /// Se le pidió estar arriba y no lo está.
+    Caido,
+}
+
+impl EstadoMaestro {
+    /// Deduce el estado del maestro a partir de los reenvíos que cuelgan de él.
+    ///
+    /// No se consulta el socket aparte: los reenvíos ya llevan el PID del
+    /// maestro que los sostiene, puesto por `observar()`. Preguntar dos veces lo
+    /// mismo abriría la puerta a que las dos respuestas discrepasen.
+    pub fn de_los_tuneles<'a>(estados: impl IntoIterator<Item = &'a EstadoTunel>) -> EstadoMaestro {
+        let mut hay_pid = false;
+        let mut hay_transito = false;
+        let mut hay_esperando = false;
+
+        for estado in estados {
+            if estado.pid_maestro.is_some() {
+                hay_pid = true;
+            }
+            match estado.estado {
+                Estado::Conectando => hay_transito = true,
+                Estado::Reintentando | Estado::Fallido | Estado::Degradado => hay_esperando = true,
+                _ => {}
+            }
+        }
+
+        if hay_pid {
+            EstadoMaestro::Vivo
+        } else if hay_transito {
+            EstadoMaestro::Levantando
+        } else if hay_esperando {
+            EstadoMaestro::Caido
+        } else {
+            EstadoMaestro::Ausente
+        }
+    }
+
+    pub fn etiqueta(&self) -> &'static str {
+        match self {
+            EstadoMaestro::Ausente => "sin conexión",
+            EstadoMaestro::Levantando => "conectando",
+            EstadoMaestro::Vivo => "conectado",
+            EstadoMaestro::Caido => "conexión caída",
+        }
+    }
+}

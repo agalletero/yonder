@@ -175,6 +175,32 @@ impl Modal {
     }
 }
 
+/// Un host con sus reenvíos, tal como se pinta en la lista.
+///
+/// La conexión maestra es por host y los reenvíos cuelgan de ella; el grupo es
+/// esa jerarquía hecha visible.
+pub struct GrupoHost {
+    pub alias: String,
+    /// `None` si el túnel viene de un fichero que ya no se lee.
+    pub host: Option<Host>,
+    pub tuneles: Vec<(yonder::modelo::Tunel, yonder::state::machine::EstadoTunel)>,
+}
+
+impl GrupoHost {
+    /// Estado de la conexión maestra, deducido de sus reenvíos.
+    pub fn estado_maestro(&self) -> yonder::state::machine::EstadoMaestro {
+        yonder::state::machine::EstadoMaestro::de_los_tuneles(self.tuneles.iter().map(|(_, e)| e))
+    }
+
+    /// Cuántos de sus reenvíos están arriba.
+    pub fn activos(&self) -> usize {
+        self.tuneles
+            .iter()
+            .filter(|(_, e)| e.estado == Estado::Activo)
+            .count()
+    }
+}
+
 pub struct Aplicacion {
     supervisor: Supervisor,
     askpass: Option<askpass::Servidor>,
@@ -290,6 +316,38 @@ impl Aplicacion {
     }
 
     /// Túneles que pasan el filtro de búsqueda y el de problemas.
+    /// Los túneles visibles, agrupados por el host que los sostiene.
+    ///
+    /// El modelo ya es jerárquico —`Host` contiene sus reenvíos— y la lista lo
+    /// aplanaba: cada fila tenía que repetir alias, usuario y destino, que son
+    /// los mismos para todos los reenvíos de un host. Siete filas cuyo elemento
+    /// más prominente era la única palabra que no distinguía ninguna.
+    ///
+    /// Agrupar devuelve además una capa que la vista plana no podía expresar:
+    /// el estado de la conexión maestra, que es por host.
+    fn grupos(&self) -> Vec<GrupoHost> {
+        let visibles = self.visibles();
+        let mut grupos: Vec<GrupoHost> = Vec::new();
+
+        for tunel in visibles {
+            let estado = self
+                .instantanea
+                .estado(&tunel.id())
+                .cloned()
+                .unwrap_or_else(|| yonder::state::machine::EstadoTunel::nuevo(tunel.id()));
+
+            match grupos.iter_mut().find(|g| g.alias == tunel.alias) {
+                Some(grupo) => grupo.tuneles.push((tunel, estado)),
+                None => grupos.push(GrupoHost {
+                    alias: tunel.alias.clone(),
+                    host: self.host(&tunel.alias).cloned(),
+                    tuneles: vec![(tunel, estado)],
+                }),
+            }
+        }
+        grupos
+    }
+
     fn visibles(&self) -> Vec<yonder::modelo::Tunel> {
         let filtro = self.filtro.trim().to_lowercase();
         self.instantanea
@@ -675,8 +733,8 @@ impl eframe::App for Aplicacion {
         egui::CentralPanel::default()
             .frame(tema.marco_panel())
             .show(contexto, |ui| {
-                let visibles = self.visibles();
-                lista::mostrar(self, ui, &visibles);
+                let grupos = self.grupos();
+                lista::mostrar(self, ui, &grupos);
             });
 
         modales::mostrar(self, contexto);

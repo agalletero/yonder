@@ -229,31 +229,6 @@ pub fn boton_destructivo(
     ui.add(boton)
 }
 
-/// Ancho de la barra de acento de una tarjeta.
-const ANCHO_ACENTO: f32 = 3.0;
-
-/// Barra de acento vertical dentro del borde izquierdo de una tarjeta.
-///
-/// Es el estilo «chip»: la identidad va en una barra de 3 px, no en un fondo
-/// saturado que dominaría la fila entera.
-///
-/// Va en forma de píldora y separada de los bordes en lugar de pegada a la
-/// esquina. Una barra a ras del borde con el radio de la tarjeta se ve
-/// deformada —el radio no cabe en 3 px de ancho— y asoma por fuera del trazo.
-/// Esto es de lo que separa «pulido» de «amateur» aunque nadie sepa nombrarlo.
-pub fn barra_acento(ui: &egui::Ui, rect: egui::Rect, color: Color32, separacion: f32) {
-    let barra = egui::Rect::from_min_size(
-        egui::pos2(rect.left() + separacion, rect.top() + separacion),
-        Vec2::new(ANCHO_ACENTO, (rect.height() - separacion * 2.0).max(0.0)),
-    );
-    ui.painter().rect_filled(
-        barra,
-        // Radio = mitad del ancho: extremos perfectamente redondeados.
-        CornerRadius::same((ANCHO_ACENTO / 2.0).ceil() as u8),
-        color,
-    );
-}
-
 /// Divisor apenas perceptible.
 ///
 /// El espacio separa mejor que las líneas; cuando hace falta una línea, que sea

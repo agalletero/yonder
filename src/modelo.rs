@@ -372,6 +372,31 @@ impl Reenvio {
     /// Marca con la que el nombre se persiste en `ssh_config`.
     pub const MARCA_NOMBRE: &'static str = "nombre:";
 
+    /// Extremos en su forma más corta discriminante, para la lista.
+    ///
+    /// `127.0.0.1` es el valor por defecto del lado de escucha y es idéntico en
+    /// todas las filas: ocupa sitio y no distingue nada, así que se omite y el
+    /// `:` inicial basta para decir que es el puerto local. La dirección solo
+    /// aparece cuando NO es el bucle local, porque entonces sí es un hecho
+    /// relevante: el puerto está abierto a la red.
+    ///
+    /// Con esta forma sobran las palabras «aquí» y «remoto» que llevaba antes:
+    /// la asimetría entre `:1522` y un destino completo ya lo dice.
+    pub fn extremos_breves(&self) -> String {
+        let escucha = match &self.escucha.direccion {
+            Some(dir) if dir != "127.0.0.1" && dir != "localhost" => {
+                format!("{dir}:{}", self.escucha.puerto)
+            }
+            _ => format!(":{}", self.escucha.puerto),
+        };
+        match (&self.tipo, &self.destino) {
+            (TipoReenvio::Dinamico, _) => format!("{escucha} → SOCKS"),
+            (TipoReenvio::Remoto, Some(destino)) => format!("remoto {escucha} → {destino}"),
+            (_, Some(destino)) => format!("{escucha} → {destino}"),
+            (_, None) => escucha,
+        }
+    }
+
     /// Nombre que se muestra en la lista.
     ///
     /// El elegido por el usuario si lo hay; si no, uno derivado del **destino**,

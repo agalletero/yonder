@@ -482,13 +482,6 @@ impl Tema {
     }
 }
 
-/// Texto principal de una fila.
-pub fn titulo(tema: &Tema, texto: impl Into<String>) -> egui::RichText {
-    egui::RichText::new(texto)
-        .size(tema.tipografia.titulo)
-        .color(tema.paleta.texto)
-}
-
 /// Texto de cuerpo.
 pub fn cuerpo(tema: &Tema, texto: impl Into<String>) -> egui::RichText {
     egui::RichText::new(texto)

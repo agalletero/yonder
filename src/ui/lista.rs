@@ -19,7 +19,7 @@ use yonder::state::supervisor::Orden;
 use super::iconos::{self, Icono};
 use super::tema::{self, Tema};
 use super::widgets;
-use super::{editor, modales, Aplicacion, Modal};
+use super::{editor, modales, Aplicacion, GrupoHost, Modal};
 
 /// Lo que el usuario pide desde una fila. Se acumula y se aplica al final del
 /// recorrido para no pelearse con el préstamo de `Aplicacion`.
@@ -35,7 +35,7 @@ enum Accion {
     CopiarClave(String),
 }
 
-pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: &[Tunel]) {
+pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, grupos: &[GrupoHost]) {
     let tema = *aplicacion.tema();
 
     if let Some(texto) = super::aviso_include(aplicacion) {
@@ -48,9 +48,10 @@ pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: &[Tunel
         return;
     }
 
-    cabecera_lista(aplicacion, ui, visibles.len());
+    let visibles: usize = grupos.iter().map(|g| g.tuneles.len()).sum();
+    cabecera_lista(aplicacion, ui, visibles);
 
-    if visibles.is_empty() {
+    if grupos.is_empty() {
         ui.add_space(tema.escala.xl);
         ui.vertical_centered(|ui| {
             iconos::mostrar(ui, Icono::BUSCAR, iconos::ENORME, tema.paleta.texto_tenue);
@@ -69,27 +70,84 @@ pub fn mostrar(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: &[Tunel
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let mut alias_anterior: Option<&str> = None;
-            for (indice, tunel) in visibles.iter().enumerate() {
-                // Un host con varios reenvíos ocupa varias filas seguidas.
-                // Repetir el alias y el destino a tamaño completo en cada una
-                // solo añade ruido: en las repeticiones se bajan de color.
-                let repetido = alias_anterior == Some(tunel.alias.as_str());
-                fila(
-                    aplicacion,
-                    ui,
-                    tunel,
-                    repetido,
-                    indice % 2 == 0,
-                    &mut acciones,
-                );
-
-                alias_anterior = Some(&tunel.alias);
+            let mut impar = false;
+            for grupo in grupos {
+                // Un host con un solo reenvío no lleva cabecera: un grupo de un
+                // elemento es ruido, y la fila puede decirlo todo ella sola.
+                if grupo.tuneles.len() > 1 {
+                    cabecera_grupo(aplicacion, ui, grupo, &mut acciones);
+                }
+                let solo = grupo.tuneles.len() == 1;
+                for (tunel, estado) in &grupo.tuneles {
+                    fila(
+                        aplicacion,
+                        ui,
+                        tunel,
+                        estado,
+                        grupo,
+                        solo,
+                        impar,
+                        &mut acciones,
+                    );
+                    impar = !impar;
+                }
+                ui.add_space(tema.escala.s);
             }
             ui.add_space(tema.escala.l);
         });
 
     aplicar(aplicacion, acciones);
+}
+
+/// Cabecera de un host: el alias una vez, no una por reenvío.
+///
+/// Aquí suben el alias, el destino y los chips que antes se repetían en cada
+/// fila. Es lo que devuelve a la fila su sitio para decir algo propio.
+fn cabecera_grupo(
+    aplicacion: &Aplicacion,
+    ui: &mut egui::Ui,
+    grupo: &GrupoHost,
+    _acciones: &mut [Accion],
+) {
+    let tema = *aplicacion.tema();
+    let maestro = grupo.estado_maestro();
+    let activos = grupo.activos();
+
+    egui::Frame::new()
+        .inner_margin(tema.margen_simetrico(tema.escala.s, tema.escala.xs))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tema.escala.s;
+                ui.label(
+                    egui::RichText::new(&grupo.alias)
+                        .size(tema.tipografia.titulo)
+                        .color(tema.paleta.texto),
+                );
+                if let Some(host) = &grupo.host {
+                    ui.label(tema::mono(&tema, host.destino_completo()));
+                    chips_del_host(ui, &tema, Some(host));
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // El recuento es lo que se mira de reojo: cuántos de los
+                    // que hay deberían estar arriba y lo están.
+                    let color = if activos > 0 {
+                        tema.paleta.exito
+                    } else {
+                        tema.paleta.texto_tenue
+                    };
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{activos} de {} activos",
+                            grupo.tuneles.len()
+                        ))
+                        .size(tema.tipografia.micro)
+                        .color(color),
+                    );
+                    ui.label(tema::tenue(&tema, maestro.etiqueta()));
+                });
+            });
+        });
 }
 
 /// Cabecera con el selector de todos y el filtro de problemas.
@@ -163,44 +221,36 @@ fn cabecera_lista(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, visibles: usiz
     ui.add_space(tema.escala.s);
 }
 
-/// Una fila-tarjeta.
+/// Una fila de la lista: una sola línea por reenvío.
+///
+/// Lo más prominente es el **nombre del túnel**, que es lo único que la
+/// distingue de sus vecinas. El alias del host vive en la cabecera del grupo y
+/// no se repite aquí; los extremos van abreviados y atenuados, porque se
+/// consultan, no se leen.
+#[allow(clippy::too_many_arguments)]
 fn fila(
     aplicacion: &Aplicacion,
     ui: &mut egui::Ui,
     tunel: &Tunel,
-    repetido: bool,
+    estado: &EstadoTunel,
+    grupo: &GrupoHost,
+    solo: bool,
     impar: bool,
     acciones: &mut Vec<Accion>,
 ) {
     let tema = *aplicacion.tema();
     let id = tunel.id();
-    // Marca de agua para saber si algún control de dentro se llevó el clic.
-    let acciones_al_entrar = acciones.len();
-    let estado = aplicacion
-        .instantanea()
-        .estado(&id)
-        .cloned()
-        .unwrap_or_else(|| EstadoTunel::nuevo(id.clone()));
-    let host = aplicacion.host(&tunel.alias);
     let seleccionada = aplicacion.detalle.as_deref() == Some(id.as_str());
     let marcada = aplicacion.seleccion.contains(&id);
 
-    // Fila de lista, no tarjeta.
-    //
-    // Las tarjetas gastaban entre ocho y diez píxeles por fila en margen y
-    // borde que no comunican nada. Aquí las filas van pegadas y el fondo
-    // alterna entre dos tonos, como en una hoja de cálculo: con la fila ancha,
-    // el color de fondo es lo que permite seguirla con la vista de un extremo
-    // al otro sin cambiar de renglón por el camino.
-    //
-    // Las esquinas redondeadas y el borde suben al contenedor de la lista; una
-    // fila interior con esquinas rompe la continuidad de la columna.
+    // El fondo alterna de base, y el estado lo pisa cuando hay algo que mirar.
+    // La alternancia sirve para seguir la fila con la vista de un extremo al
+    // otro; el color de estado, para que un túnel con problemas salte entre
+    // quince. Son dos trabajos distintos y por eso conviven.
     let fondo = if seleccionada {
-        if tema.paleta.oscuro {
-            tema.paleta.elevado
-        } else {
-            tema.paleta.acento_suave
-        }
+        tema.paleta.acento_suave
+    } else if estado.estado.problematico() {
+        tema.fondo_estado(estado.estado)
     } else if impar {
         tema.paleta.superficie
     } else if tema.paleta.oscuro {
@@ -209,137 +259,62 @@ fn fila(
         tema.paleta.hover
     };
 
-    let marco = egui::Frame::new()
+    egui::Frame::new()
         .fill(fondo)
-        .inner_margin(tema.margen_simetrico(tema.escala.s, tema.escala.xs));
+        .inner_margin(tema.margen_simetrico(tema.escala.s, tema.escala.xs))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = tema.escala.s;
 
-    let interior = marco.show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = tema.escala.m;
-            // Hueco para la barra de acento, que se pinta después encima.
-            ui.add_space(tema.escala.s);
+                let mut copia = marcada;
+                if widgets::casilla(ui, &tema, &mut copia).clicked() {
+                    acciones.push(Accion::Alternar(id.clone()));
+                }
+                widgets::indicador_estado(ui, &tema, estado.estado, iconos::PEQUENO);
 
-            let mut copia = marcada;
-            if widgets::casilla(ui, &tema, &mut copia).clicked() {
-                acciones.push(Accion::Alternar(id.clone()));
-            }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = tema.escala.xs;
+                    acciones_de_fila(
+                        ui,
+                        &tema,
+                        tunel,
+                        estado,
+                        grupo.host.as_ref(),
+                        seleccionada,
+                        acciones,
+                    );
 
-            widgets::indicador_estado(ui, &tema, estado.estado, iconos::GRANDE);
-
-            // Las acciones se reservan su sitio ANTES que el bloque central.
-            //
-            // Al revés —que era como estaba— el bloque central crecía hasta lo
-            // que pedía su contenido y las acciones se pintaban después sobre
-            // lo que quedara, que con un destino largo era nada: el botón
-            // acababa encima del texto. Con la disposición de derecha a
-            // izquierda por fuera, los botones toman su ancho real y al centro
-            // le queda exactamente el resto, sin ninguna constante que acertar.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = tema.escala.xs;
-                acciones_de_fila(ui, &tema, tunel, &estado, host, seleccionada, acciones);
-                ui.add_space(tema.escala.s);
-                ui.label(tema::tenue(&tema, resumen_temporal(&estado)));
-
-                // Bloque central: dos líneas de jerarquía descendente.
-                ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                    ui.spacing_mut().item_spacing.y = tema.escala.xs;
-
-                    ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = tema.escala.s;
-                        if repetido {
-                            // Mismo host que la fila de arriba: se baja de color,
-                            // no de tamaño, para no romper la rejilla vertical.
-                            ui.label(
-                                egui::RichText::new(&tunel.alias)
-                                    .size(tema.tipografia.titulo)
-                                    .color(tema.paleta.texto_tenue),
-                            );
-                            widgets::chip_neutro(ui, &tema, Icono::ENLACE, "mismo host");
-                        } else {
-                            ui.label(tema::titulo(&tema, &tunel.alias));
-                            chips_del_host(ui, &tema, host);
-                        }
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = tema.escala.s;
-                        iconos::mostrar(
-                            ui,
-                            Icono::INTERCAMBIO,
-                            iconos::PEQUENO,
-                            tema.paleta.texto_tenue,
+                        // El nombre, que es lo que distingue esta fila.
+                        ui.label(
+                            egui::RichText::new(tunel.reenvio.nombre_visible())
+                                .size(tema.tipografia.cuerpo)
+                                .color(if estado.estado == Estado::Activo {
+                                    tema.paleta.texto
+                                } else {
+                                    tema.paleta.texto_secundario
+                                }),
                         );
-                        ui.label(tema::mono(&tema, tunel.reenvio.descripcion_orientada()));
-                        if tunel.reenvio.salud.atraviesa_el_tunel() {
-                            // Que se vea qué se está comprobando: no es lo mismo
-                            // «el puerto está abierto» que «el servicio responde».
-                            widgets::chip_neutro(
-                                ui,
-                                &tema,
-                                Icono::MEDIDOR,
-                                &tunel.reenvio.salud.etiqueta(),
-                            )
-                            .on_hover_text(tunel.reenvio.salud.explicacion());
+                        // Cuando el host tiene un solo reenvío no hay cabecera,
+                        // así que el alias se dice aquí y solo aquí.
+                        if solo {
+                            ui.label(tema::tenue(&tema, &grupo.alias));
                         }
-                        // El destino solo en la primera fila del host: repetirlo
-                        // sería decir tres veces lo mismo.
-                        if !repetido {
-                            if let Some(host) = host {
-                                ui.label(tema::tenue(&tema, "·"));
-                                // Recortado: es el dato menos importante de la
-                                // línea, y con un destino largo era el que empujaba
-                                // la fila hasta desbordarla. El valor entero está en
-                                // el detalle.
-                                ui.add(
-                                    egui::Label::new(tema::secundario(
-                                        &tema,
-                                        host.destino_completo(),
-                                    ))
-                                    .truncate(),
-                                )
-                                .on_hover_text(host.destino_completo());
+                        ui.label(tema::mono(&tema, tunel.reenvio.extremos_breves()));
+                        if estado.estado.problematico() {
+                            if let Some(motivo) = &estado.ultimo_error {
+                                ui.label(
+                                    egui::RichText::new(motivo)
+                                        .size(tema.tipografia.micro)
+                                        .color(tema.color_estado(estado.estado)),
+                                );
                             }
                         }
                     });
-
-                    if !repetido {
-                        if let Some(nota) = host.and_then(|h| h.nota.as_ref()) {
-                            ui.label(tema::tenue(&tema, nota));
-                        }
-                    }
                 });
             });
         });
-    });
-
-    // Barra de acento al borde izquierdo: la identidad va aquí, no en el fondo.
-    widgets::barra_acento(
-        ui,
-        interior.response.rect,
-        tema.color_estado(estado.estado),
-        tema.escala.s,
-    );
-
-    // La fila NO se hace clicable entera, y no es un capricho de diseño.
-    //
-    // Hacerlo exige llamar a `interact` sobre el marco, que se registra después
-    // de su contenido y por tanto queda por encima: la tarjeta se llevaba los
-    // clics de sus propios botones y estos no llegaban a enterarse. El síntoma
-    // era que pulsar «Levantar» no levantaba nada y solo abría el detalle.
-    // Está fijado en «tests/capas.rs».
-    //
-    // El detalle se abre desde su propio control, que además es lo que un
-    // acordeón espera: una cabecera con su desplegador.
-    let _ = acciones_al_entrar;
-
-    // El error va bajo la fila, no en un tooltip: un fallo que hay que
-    // descubrir pasando el ratón por encima es un fallo escondido.
-    if estado.estado.problematico() {
-        if let Some(mensaje) = &estado.ultimo_error {
-            ui.add_space(tema.escala.xs);
-            widgets::caja_aviso(ui, &tema, estado.estado == Estado::Fallido, mensaje);
-        }
-    }
 }
 
 /// Chips de metadatos del host: saltos, llave física, origen externo.
@@ -505,29 +480,6 @@ fn acciones_de_fila(
         } else {
             Accion::Levantar(id)
         });
-    }
-}
-
-/// Texto de la derecha: lo más útil según el estado.
-fn resumen_temporal(estado: &EstadoTunel) -> String {
-    match estado.estado {
-        Estado::Activo => format!("activo {}", widgets::duracion_legible(estado.antiguedad())),
-        Estado::Reintentando => match estado.espera_restante() {
-            Some(espera) if !espera.is_zero() => {
-                format!("reintento en {}", widgets::duracion_legible(espera))
-            }
-            _ => format!("intento {}", estado.intento.max(1)),
-        },
-        Estado::Degradado => match estado.ultimo_error.as_deref() {
-            // El motivo completo va en la caja de debajo; aquí, dos palabras.
-            Some(motivo) if motivo.contains("no está en escucha") => "puerto caído".to_string(),
-            Some(_) => "no responde".to_string(),
-            None => "degradado".to_string(),
-        },
-        Estado::Fallido => format!("{} intentos fallidos", estado.intento),
-        Estado::Conectando => "conectando…".to_string(),
-        Estado::Cerrando => "cerrando…".to_string(),
-        Estado::Definido => String::new(),
     }
 }
 
