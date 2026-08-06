@@ -79,6 +79,7 @@ cp -a %{_sourcedir}/raiz/. %{buildroot}/
 %dir %{_datadir}/doc/yonder
 %doc %{_datadir}/doc/yonder/README.md
 %doc %{_datadir}/doc/yonder/ejemplo.conf
+%doc %{_datadir}/doc/yonder/example.conf
 %license %{_datadir}/doc/yonder/LICENSE
 
 %changelog
