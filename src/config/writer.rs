@@ -27,6 +27,9 @@ const CABECERA: &[&str] = &[
     "#",
     "# Cada Host definido aquí funciona también con ssh, scp, rsync y VS Code",
     "# Remote sin que la aplicación esté corriendo. Ese es justamente el punto.",
+    "#",
+    "# Ejemplos comentados, del túnel simple al Oracle a dos saltos:",
+    "#     /usr/share/doc/yonder/ejemplo.conf   (example.conf, in English)",
 ];
 
 /// Directivas de robustez que la aplicación mantiene en cada host (§3.3).

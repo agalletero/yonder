@@ -72,6 +72,8 @@ poblar_arbol() {
     install -Dm644 "$RAIZ/LICENSE"    "$destino/usr/share/doc/yonder/LICENSE"
     install -Dm644 "$RAIZ/docs/ejemplo.conf" \
         "$destino/usr/share/doc/yonder/ejemplo.conf"
+    install -Dm644 "$RAIZ/docs/example.conf" \
+        "$destino/usr/share/doc/yonder/example.conf"
 }
 
 # Texto largo de la descripción, común a los dos formatos.
