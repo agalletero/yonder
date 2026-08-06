@@ -335,7 +335,7 @@ impl Salud {
 /// Solo los que aparecen de verdad en los túneles de trabajo. No pretende ser
 /// la lista de IANA: un nombre inventado para un puerto poco común confunde
 /// más que un «puerto-9418» honesto.
-fn servicio_de(puerto: u16) -> Option<&'static str> {
+pub fn servicio_de(puerto: u16) -> Option<&'static str> {
     Some(match puerto {
         22 => "ssh",
         80 => "http",

@@ -1,6 +1,6 @@
 [package]
 name = "yonder"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 # El suelo real lo imponen las dependencias («image» declara 1.88). Quien
 # compile con rustup ni lo nota —rust-toolchain.toml manda—; esto es para que

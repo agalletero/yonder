@@ -34,6 +34,8 @@ ICONOS=(
     info clock history activity gauge chart-line zap link-2 arrow-right-left
     # Tema
     sun moon monitor-cog
+    # Topología del detalle: este equipo, y el servicio de destino
+    laptop database
 )
 
 TMP_DIR=""

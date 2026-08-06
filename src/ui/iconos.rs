@@ -123,6 +123,10 @@ catalogo! {
     CLARO          => "sun",
     OSCURO         => "moon",
     AUTOMATICO     => "monitor-cog",
+
+    // Topología del detalle: este equipo y el servicio de destino
+    PORTATIL       => "laptop",
+    BASE_DATOS     => "database",
 }
 
 /// Tamaños de icono. Tres, a juego con la escala tipográfica.

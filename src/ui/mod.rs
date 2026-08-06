@@ -237,7 +237,12 @@ impl Aplicacion {
             version_ssh,
             instantanea: Instantanea::default(),
             seleccion: HashSet::new(),
-            detalle: None,
+            // La variable existe para las capturas del README: el detalle solo
+            // se abre con un clic y el hogar aislado no puede pulsar. No se
+            // documenta de cara al usuario; no es interfaz, es andamiaje.
+            detalle: std::env::var("YONDER_DETALLE")
+                .ok()
+                .filter(|v| !v.is_empty()),
             filtro: String::new(),
             solo_problemas: false,
             modal: Modal::Ninguno,

@@ -6,6 +6,7 @@
 
 use eframe::egui::{self, Color32, CornerRadius, Sense, Stroke, StrokeKind, Vec2};
 
+use yonder::modelo::{servicio_de, Host, TipoReenvio, Tunel};
 use yonder::state::machine::Estado;
 
 use super::iconos::{self, Icono};
@@ -381,8 +382,12 @@ pub fn casilla(ui: &mut egui::Ui, tema: &Tema, marcada: &mut bool) -> egui::Resp
 }
 
 /// Cabecera de sección: título en mayúsculas y tenue.
+///
+/// El aire de arriba es el doble que el de abajo a propósito: la cabecera
+/// pertenece a lo que la sigue, y con márgenes iguales flotaba entre las dos
+/// secciones sin pertenecer a ninguna.
 pub fn cabecera_seccion(ui: &mut egui::Ui, tema: &Tema, texto: &str) {
-    ui.add_space(tema.escala.s);
+    ui.add_space(tema.escala.m);
     ui.label(
         egui::RichText::new(texto.to_uppercase())
             .size(tema.tipografia.micro)
@@ -400,8 +405,15 @@ pub fn cabecera_seccion(ui: &mut egui::Ui, tema: &Tema, texto: &str) {
 /// con la vista para saber qué valor es de quién.
 const ANCHO_PROPIEDADES: f32 = 400.0;
 
-/// Separación entre el nombre y su valor.
-const HUECO_PROPIEDAD: f32 = 24.0;
+/// Ancho de la columna de etiquetas.
+///
+/// Fijo, para que todos los valores arranquen en la misma vertical. Con un
+/// hueco constante detrás de cada etiqueta, el valor empezaba donde su
+/// etiqueta acababa, y la lista se leía como frases sueltas y no como tabla.
+const ANCHO_ETIQUETA: f32 = 150.0;
+
+/// Separación mínima cuando una etiqueta se sale de su columna.
+const HUECO_PROPIEDAD: f32 = 12.0;
 
 pub fn propiedad(ui: &mut egui::Ui, tema: &Tema, etiqueta: &str, valor: &str) {
     ui.allocate_ui(
@@ -411,12 +423,181 @@ pub fn propiedad(ui: &mut egui::Ui, tema: &Tema, etiqueta: &str, valor: &str) {
             // tabla, no un párrafo suelto.
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = HUECO_PROPIEDAD;
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let inicio = ui.cursor().min.x;
                 ui.label(super::tema::tenue(tema, etiqueta));
+                let usado = ui.cursor().min.x - inicio;
+                ui.add_space((ANCHO_ETIQUETA - usado).max(HUECO_PROPIEDAD));
                 ui.label(super::tema::secundario(tema, valor));
             });
         },
     );
+}
+
+/// Un puesto del esquema de topología.
+struct Nodo {
+    icono: Icono,
+    titulo: String,
+    sub: String,
+}
+
+/// Icono del servicio de destino, elegido por el puerto.
+///
+/// La misma tabla corta de [`servicio_de`]: bases de datos, web y SSH son los
+/// destinos que aparecen de verdad; el resto es un servidor sin apellido.
+fn icono_de_servicio(puerto: u16) -> Icono {
+    match puerto {
+        22 => Icono::TERMINAL,
+        1521 | 3306 | 5432 | 6379 | 27017 => Icono::BASE_DATOS,
+        80 | 443 | 3000 | 3001 | 8080 | 8081 | 9090 | 9093 => Icono::GLOBO,
+        _ => Icono::SERVIDOR,
+    }
+}
+
+/// Ancho de una flecha del esquema.
+const ANCHO_FLECHA: f32 = 48.0;
+
+/// Esquema del recorrido del túnel: quién escucha, por dónde pasa, adónde va.
+///
+/// La lista de propiedades dice lo mismo con palabras; esto lo dice de un
+/// vistazo, que es lo que hace falta para comprobar «qué máquina abre qué
+/// puerto de cuál» sin leer tres secciones. Tres puestos con icono —este
+/// equipo, el host por el que se pasa y el servicio de destino— y una flecha
+/// entre cada par, en el sentido en el que viajan las conexiones.
+pub fn topologia(ui: &mut egui::Ui, tema: &Tema, tunel: &Tunel, host: Option<&Host>) {
+    let reenvio = &tunel.reenvio;
+
+    let escucha = match &reenvio.escucha.direccion {
+        Some(dir) => format!("escucha {dir}:{}", reenvio.escucha.puerto),
+        None => format!("escucha :{}", reenvio.escucha.puerto),
+    };
+    let equipo_titulo = "este equipo".to_string();
+    let puesto_host = Nodo {
+        icono: Icono::SERVIDOR,
+        titulo: tunel.alias.clone(),
+        sub: host.map(|h| h.destino_completo()).unwrap_or_default(),
+    };
+    let destino = match (&reenvio.tipo, &reenvio.destino) {
+        (TipoReenvio::Dinamico, _) => Nodo {
+            icono: Icono::GLOBO,
+            titulo: "SOCKS".to_string(),
+            sub: "cualquier destino".to_string(),
+        },
+        (_, Some(extremo)) => Nodo {
+            icono: icono_de_servicio(extremo.puerto),
+            titulo: extremo.to_string(),
+            sub: servicio_de(extremo.puerto).unwrap_or_default().to_string(),
+        },
+        (_, None) => Nodo {
+            icono: Icono::SERVIDOR,
+            titulo: String::new(),
+            sub: String::new(),
+        },
+    };
+
+    // El local y el SOCKS escuchan aquí y desembocan allá; el remoto escucha
+    // en el host y desemboca en un destino que se resuelve desde esta máquina.
+    let puestos = match reenvio.tipo {
+        TipoReenvio::Local | TipoReenvio::Dinamico => [
+            Nodo {
+                icono: Icono::PORTATIL,
+                titulo: equipo_titulo,
+                sub: escucha,
+            },
+            puesto_host,
+            destino,
+        ],
+        TipoReenvio::Remoto => [
+            Nodo {
+                icono: Icono::SERVIDOR,
+                titulo: puesto_host.titulo.clone(),
+                sub: escucha,
+            },
+            Nodo {
+                icono: Icono::PORTATIL,
+                titulo: equipo_titulo,
+                sub: String::new(),
+            },
+            destino,
+        ],
+    };
+
+    // Los saltos intermedios van sobre la flecha del tramo SSH; si no caben,
+    // se dice cuántos son, que para el esquema basta.
+    let via = host.filter(|h| !h.saltos.is_empty()).map(|h| {
+        let texto = format!("vía {}", h.saltos.join(", "));
+        if texto.len() > 14 {
+            format!("vía {} saltos", h.saltos.len())
+        } else {
+            texto
+        }
+    });
+
+    let disponible = ui.available_width();
+    let ancho_nodo = ((disponible - 2.0 * ANCHO_FLECHA) / 3.0).clamp(96.0, 150.0);
+    let total = 3.0 * ancho_nodo + 2.0 * ANCHO_FLECHA;
+
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(((disponible - total) / 2.0).max(0.0));
+        puesto(ui, tema, ancho_nodo, &puestos[0]);
+        flecha(ui, tema, via.as_deref());
+        puesto(ui, tema, ancho_nodo, &puestos[1]);
+        flecha(ui, tema, None);
+        puesto(ui, tema, ancho_nodo, &puestos[2]);
+    });
+}
+
+fn puesto(ui: &mut egui::Ui, tema: &Tema, ancho: f32, nodo: &Nodo) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(ancho, 0.0),
+        egui::Layout::top_down(egui::Align::Center),
+        |ui| {
+            ui.set_width(ancho);
+            ui.spacing_mut().item_spacing.y = tema.escala.xs;
+            ui.add(iconos::imagen(
+                nodo.icono,
+                iconos::ENORME,
+                tema.paleta.texto_secundario,
+            ));
+            ui.label(
+                egui::RichText::new(&nodo.titulo)
+                    .size(tema.tipografia.cuerpo)
+                    .color(tema.paleta.texto),
+            );
+            if !nodo.sub.is_empty() {
+                ui.label(
+                    egui::RichText::new(&nodo.sub)
+                        .size(tema.tipografia.micro)
+                        .color(tema.paleta.texto_tenue),
+                );
+            }
+        },
+    );
+}
+
+fn flecha(ui: &mut egui::Ui, tema: &Tema, etiqueta: Option<&str>) {
+    // La flecha mide lo que el icono de al lado: con los puestos alineados
+    // arriba, su centro vertical coincide con el centro de los iconos.
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ANCHO_FLECHA, iconos::ENORME), Sense::hover());
+    let y = rect.center().y;
+    let a = egui::pos2(rect.left() + 6.0, y);
+    let b = egui::pos2(rect.right() - 6.0, y);
+    let trazo = Stroke::new(1.5_f32, tema.paleta.texto_tenue);
+    let pintor = ui.painter();
+    pintor.line_segment([a, b], trazo);
+    pintor.line_segment([egui::pos2(b.x - 4.0, y - 4.0), b], trazo);
+    pintor.line_segment([egui::pos2(b.x - 4.0, y + 4.0), b], trazo);
+    if let Some(texto) = etiqueta {
+        pintor.text(
+            egui::pos2(rect.center().x, y - 6.0),
+            egui::Align2::CENTER_BOTTOM,
+            texto,
+            egui::FontId::new(tema.tipografia.micro, egui::FontFamily::Proportional),
+            tema.paleta.texto_tenue,
+        );
+    }
 }
 
 /// Texto de una duración en lenguaje natural y corto.

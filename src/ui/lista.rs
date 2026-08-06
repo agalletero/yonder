@@ -702,6 +702,13 @@ pub fn panel_detalle(aplicacion: &mut Aplicacion, ui: &mut egui::Ui, id: &str) {
     // los túneles siguientes, que es el comportamiento de un acordeón.
     {
         {
+            // El recorrido primero: es la respuesta gráfica a «qué máquina
+            // abre qué puerto de cuál», que es lo que se viene a mirar aquí.
+            widgets::cabecera_seccion(ui, &tema, "Recorrido");
+            ui.add_space(tema.escala.xs);
+            widgets::topologia(ui, &tema, &tunel, host.as_ref());
+            ui.add_space(tema.escala.s);
+
             widgets::cabecera_seccion(ui, &tema, "Reenvío");
             widgets::propiedad(ui, &tema, "Tipo", tunel.reenvio.tipo.etiqueta());
             widgets::propiedad(ui, &tema, "Escucha", &tunel.reenvio.escucha.to_string());

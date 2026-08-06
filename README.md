@@ -196,7 +196,24 @@ para saber en cuál de las dos situaciones se está.
 Un host cuyos reenvíos estén en ambos estados aparece en las dos mitades, cada
 una con su propio recuento.
 
-### 4.3 El nombre de un reenvío
+### 4.3 El detalle de un túnel
+
+Cada fila se abre en una ventana de detalle. Su primera sección, «Recorrido»,
+es un esquema de tres puestos —este equipo, el host por el que se pasa y el
+servicio de destino— con los iconos elegidos según el servicio: base de datos,
+web o SSH. Las flechas siguen el sentido en el que viajan las conexiones,
+también en los reenvíos remotos, y los saltos intermedios (`ProxyJump`) se
+anotan sobre el tramo SSH.
+
+Debajo figuran, alineadas en tabla, las propiedades del reenvío y del host, la
+comprobación de salud declarada, el estado de ejecución y las dos órdenes
+equivalentes para la terminal: la de este equipo, que aprovecha la
+configuración compartida, y la autocontenida, pensada para una máquina que no
+la tiene.
+
+![Detalle de un túnel con su recorrido](docs/capturas/yonder-detalle.png)
+
+### 4.4 El nombre de un reenvío
 
 El nombre es lo que encabeza la fila y lo único que distingue un reenvío de sus
 vecinos, que comparten alias y destino. Se define en el campo **Nombre** del
@@ -219,7 +236,7 @@ Cuando no se indica ninguno, se deriva del destino: `oracle-1521`,
 `grafana-3000`, `ssh-22`. Para un puerto sin servicio reconocido se emplea
 `puerto-9418`, que informa de lo que se sabe sin inventar lo que no.
 
-### 4.4 Tamaño de la interfaz
+### 4.5 Tamaño de la interfaz
 
 Se ajusta con el contador de **Ajustes**, en pasos del 5 % entre el 80 % y el
 200 %, o con los atajos habituales:
@@ -237,7 +254,7 @@ texto al doble sin que la maquetación se rompa.
 La barra inferior muestra la versión en ejecución, junto al recuento de túneles
 y la ruta del fichero de configuración.
 
-### 4.5 Parámetros del formulario «Nuevo túnel»
+### 4.6 Parámetros del formulario «Nuevo túnel»
 
 El formulario se compone de dos partes: los datos de la conexión, comunes a
 todos sus reenvíos, y una fila por cada puerto reenviado. Bajo cada fila se
@@ -265,7 +282,7 @@ maestra. Debe declararse al menos uno.
 |---|---|---|
 | **Tipo** | Sí | `Local` (`LocalForward`, equivalente a `-L`) abre un puerto en la máquina propia hacia un destino accesible desde el servidor remoto. `Remoto` (`RemoteForward`, `-R`) hace lo inverso: abre el puerto en el servidor remoto hacia un destino accesible desde aquí. `SOCKS` (`DynamicForward`, `-D`) abre un proxy dinámico y no requiere destino |
 | **Escucha en** | No | Interfaz en la que se abre el puerto. En blanco, `localhost`, de modo que solo es accesible desde la propia máquina. Indicar una dirección que abarque todas las interfaces expone el puerto al resto de la red, y el formulario lo advierte |
-| **Puerto local** | Sí | Puerto que se abre. Los inferiores a 1024 requieren la capacidad descrita en el apartado 4.7 |
+| **Puerto local** | Sí | Puerto que se abre. Los inferiores a 1024 requieren la capacidad descrita en el apartado 4.8 |
 | **Host remoto** | Sí, salvo en `SOCKS` | Destino del reenvío, resuelto **desde el servidor remoto**. El valor predeterminado es `localhost`, que designa al propio servidor y no a la máquina de origen |
 | **Puerto remoto** | Sí, salvo en `SOCKS` | Puerto del destino |
 | **Comprobación** | No | Procedimiento de verificación de salud, disponible solo en los reenvíos locales. Las opciones se detallan en el apartado 5.2 |
@@ -295,7 +312,7 @@ falle la conexión:
 - Reenvío que escucha en todas las interfaces y queda por tanto accesible desde
   la red.
 
-### 4.6 Interfaz de línea de órdenes
+### 4.7 Interfaz de línea de órdenes
 
 La totalidad de las operaciones disponibles en la ventana puede ejecutarse sin
 ella:
@@ -320,7 +337,7 @@ ella:
 La salida se emite sin colores, con los prefijos `[ERR]`, `[WARN]`, `[INFO]` y
 `[DEBUG]`.
 
-### 4.7 Puertos inferiores a 1024
+### 4.8 Puertos inferiores a 1024
 
 Su reenvío requiere una capacidad que el ejecutable no incorpora de serie. La
 aplicación lo detecta durante la validación del túnel e indica la orden que debe
@@ -399,9 +416,12 @@ techo y una variación aleatoria de ±20 %, destinada a evitar que un conjunto
 numeroso de túneles caídos simultáneamente —por ejemplo, al interrumpirse una
 VPN (red privada virtual)— se restablezca en el mismo instante.
 
-En [`docs/ejemplo.conf`](docs/ejemplo.conf) figura un ejemplo completo con siete
-reenvíos a través de una misma máquina de salto y sus respectivas
-comprobaciones.
+En [`docs/ejemplo.conf`](docs/ejemplo.conf) figuran cinco ejemplos comentados
+sobre un mismo escenario —el portátil, una máquina de salto y un servidor
+interno al que solo el salto llega—, del reenvío simple al Oracle a dos saltos,
+el reenvío remoto y el proxy SOCKS, cada uno con su comprobación de salud. La
+versión en inglés es [`docs/example.conf`](docs/example.conf). Los paquetes
+instalan ambos en `/usr/share/doc/yonder/`.
 
 ---
 
